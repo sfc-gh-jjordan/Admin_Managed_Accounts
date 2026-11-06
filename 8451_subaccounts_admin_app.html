@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="snowflake-source" content="cortex-agent-authored" />
+<title>84.51 CPG User Lifecycle Admin – Solution Design</title>
+<script type="application/json" id="snowflake-report-metadata">
+{
+  "generated": "2026-11-05",
+  "intent": "Customer-facing design overview of the 84.51 CPG sub-account user lifecycle admin application",
+  "dataSources": [{ "type": "file", "path": "cpg-user-lifecycle-admin.plan.md" }],
+  "sections": [
+    { "id": "overview", "title": "Purpose and scope" },
+    { "id": "architecture", "title": "Architecture" },
+    { "id": "registry", "title": "Account registry and security boundary" },
+    { "id": "data-model", "title": "Central data model" },
+    { "id": "csv", "title": "CSV request contract" },
+    { "id": "screens", "title": "Application screens" },
+    { "id": "auth-policy", "title": "Authentication policy baseline" },
+    { "id": "onboarding", "title": "Onboarding workflow" },
+    { "id": "internal-admin", "title": "Internal 84.51 ACCOUNTADMIN workflow" },
+    { "id": "offboarding", "title": "Offboarding workflow" },
+    { "id": "execution", "title": "Reliable SQL API execution" },
+    { "id": "controls", "title": "Roles, credentials, and network controls" },
+    { "id": "reconciliation", "title": "Reconciliation" },
+    { "id": "testing", "title": "Acceptance tests" },
+    { "id": "phases", "title": "Delivery phases" },
+    { "id": "docs", "title": "Reference documentation" }
+  ],
+  "producerNotes": "Content adapted from the internal design plan; internal-only environment notes removed."
+}
+</script>
+<style>
+  :root { color-scheme: light dark; --accent: #29B5E8; --navy: light-dark(#11567F, #7cc8ec); }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+    max-width: 960px; width: 100%; margin: 0 auto; padding: clamp(16px, 4vw, 32px);
+    line-height: 1.55; color: light-dark(#1f2937, #e5e7eb); background: light-dark(#ffffff, #0f172a);
+  }
+  h1, h2, h3 { color: light-dark(#0f172a, #f1f5f9); line-height: 1.25; }
+  h2 { margin-top: 2.4em; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+  h3 { margin-top: 1.6em; color: var(--navy); }
+  a { color: light-dark(#2563eb, #60a5fa); }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: .9em; background: light-dark(#f1f5f9, #1e293b); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+  pre { background: light-dark(#f8fafc, #1e293b); border: 1px solid light-dark(#e2e8f0, #334155); padding: 12px; border-radius: 8px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  img, svg { max-width: 100%; height: auto; }
+  .hero { background: linear-gradient(135deg, #11567F, #29B5E8); color: #fff; border-radius: 12px; padding: clamp(20px, 4vw, 36px); }
+  .hero h1 { color: #fff; margin: 0 0 8px; }
+  .hero p { margin: 4px 0; opacity: .95; }
+  .badge { display: inline-block; background: rgba(255,255,255,.2); border: 1px solid rgba(255,255,255,.5); border-radius: 999px; padding: 3px 12px; font-size: .85em; margin-top: 10px; }
+  .note { border-left: 4px solid #f59e0b; background: light-dark(#fffbeb, #3a2e0b); padding: 10px 14px; border-radius: 6px; margin: 16px 0; }
+  .info { border-left: 4px solid var(--accent); background: light-dark(#eff9fd, #0c2a3a); padding: 10px 14px; border-radius: 6px; margin: 16px 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 16px 0; }
+  .card { border: 1px solid light-dark(#e2e8f0, #334155); border-radius: 10px; padding: 14px; background: light-dark(#f8fafc, #111c2f); }
+  .card h4 { margin: 0 0 6px; color: var(--navy); }
+  .card p { margin: 0; font-size: .93em; }
+  .table-wrap { overflow-x: auto; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .93em; }
+  th, td { border: 1px solid light-dark(#d1d5db, #374151); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: light-dark(#f3f4f6, #1f2937); }
+  nav.toc { columns: 2 220px; font-size: .93em; margin: 20px 0; }
+  nav.toc a { display: block; padding: 2px 0; }
+  ol li, ul li { margin: 4px 0; }
+  .mermaid { background: light-dark(#ffffff, #f8fafc); border-radius: 8px; padding: 10px; overflow-x: auto; text-align: center; }
+  footer { margin-top: 3em; font-size: .85em; color: light-dark(#64748b, #94a3b8); border-top: 1px solid light-dark(#e2e8f0, #334155); padding-top: 12px; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>84.51 CPG User Lifecycle Admin</h1>
+  <p>Solution design for centrally managing human users across 150+ CPG customer Snowflake accounts</p>
+  <span class="badge">Design proposal &mdash; not yet implemented</span>
+</div>
+
+<nav class="toc" aria-label="Contents">
+  <a href="#overview">1. Purpose and scope</a>
+  <a href="#architecture">2. Architecture</a>
+  <a href="#registry">3. Account registry &amp; security boundary</a>
+  <a href="#data-model">4. Central data model</a>
+  <a href="#csv">5. CSV request contract</a>
+  <a href="#screens">6. Application screens</a>
+  <a href="#auth-policy">7. Authentication policy baseline</a>
+  <a href="#onboarding">8. Onboarding workflow</a>
+  <a href="#internal-admin">9. Internal ACCOUNTADMIN workflow</a>
+  <a href="#offboarding">10. Offboarding workflow</a>
+  <a href="#execution">11. Reliable SQL API execution</a>
+  <a href="#controls">12. Roles, credentials &amp; network</a>
+  <a href="#reconciliation">13. Reconciliation</a>
+  <a href="#testing">14. Acceptance tests</a>
+  <a href="#phases">15. Delivery phases</a>
+  <a href="#docs">16. Reference documentation</a>
+</nav>
+
+<h2 id="overview">1. Purpose and scope</h2>
+<p>A Streamlit in Snowflake application running in 84.51&rsquo;s main account (<code>EIGHTY451</code>) manages human users across more than 150 CPG customer accounts. These are full Snowflake accounts with read/write capability, not reader accounts.</p>
+<div class="grid">
+  <div class="card"><h4>Customer requests</h4><p>CPG customers send CSV user and role requests. The app validates, stages, and routes them for admin approval.</p></div>
+  <div class="card"><h4>Remote execution</h4><p>Approved onboarding/offboarding is queued and executed through the Snowflake SQL API.</p></div>
+  <div class="card"><h4>Central inventory</h4><p>A single view of verified remote user status and assigned roles across all accounts.</p></div>
+  <div class="card"><h4>Privileged access</h4><p>Named 84.51 admins can be granted ACCOUNTADMIN on selected accounts via a separate, MFA-gated workflow.</p></div>
+</div>
+<div class="info"><strong>Authentication:</strong> Customer users authenticate with native Snowflake passwords plus MFA. Customer SSO and SCIM are out of scope. Newly provisioned 84.51 administrators also use local PERSON users with password plus native MFA in the initial design.</div>
+<div class="note">This document describes a proposed design. It does not authorize account changes. Account identifiers, regions, and existing infrastructure will be verified before implementation; all table names are proposed.</div>
+
+<h2 id="architecture">2. Architecture</h2>
+<pre class="mermaid">
+flowchart TD
+  A[CPG-provided CSV] --> B["84.51 Streamlit app in EIGHTY451<br/>Upload → Validate → Preview → Approve"]
+  B --> C[Control tables &amp; durable operation queue]
+  C --> D[Scheduled Snowflake Task → Python worker procedure]
+  D --> E[Account-scoped secret + external access integration]
+  E --> F["Registered customer-account SQL API endpoint<br/>Preflight → Execute → Verify → Record"]
+  F --> G[Central inventory, reconciliation &amp; audit history]
+</pre>
+<ul>
+  <li><strong>UI is separated from execution.</strong> The app never holds target private keys and does not need an open browser to finish a batch.</li>
+  <li>A scheduled worker picks up approved operations in bounded batches. Start with a single non-overlapping dispatcher; add account-sharded concurrency after pilot testing.</li>
+  <li>The Streamlit app (warehouse runtime baseline) reads central control data only. Target administration is performed through the SQL API using the target service identity.</li>
+</ul>
+
+<h2 id="registry">3. Account registry and security boundary</h2>
+<p>An admin-controlled customer registry holds, per account:</p>
+<ul>
+  <li>Customer ID and display name.</li>
+  <li>Account locator, region/cloud, organization/account name, and verified HTTPS SQL API hostname.</li>
+  <li>Expected target account identity for preflight verification.</li>
+  <li>Service username, explicit execution role, and execution context.</li>
+  <li>Worker procedure and secret/credential version references &mdash; never key material.</li>
+  <li>Approved email domains, roles, protected users, and paused/enabled state.</li>
+  <li>Customer and internal-admin MFA policy names, expected versions, and bootstrap health.</li>
+  <li>Approved internal-admin roster references, privileged approvers, low-privilege default role, and emergency-access coverage.</li>
+</ul>
+<p>An account locator alone is not sufficient connection configuration. Admins choose the customer/account from the registry; CSVs can never supply hosts, credentials, procedure names, SQL, or policy definitions. Each approved payload is bound to the registry and role-catalog versions to prevent redirection after approval.</p>
+
+<h2 id="data-model">4. Central data model</h2>
+<p>Role assignments are normalized (no comma-separated lists). A joined inventory view provides one user-facing control grid.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Proposed table</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>CUSTOMER_ACCOUNTS</code></td><td>Registered accounts, trusted endpoints, worker references, policy baseline, health.</td></tr>
+<tr><td><code>ROLE_CATALOG</code></td><td>Allowed roles per account, default-role eligibility, approval class, effective-privilege review.</td></tr>
+<tr><td><code>ADMIN_AUTHORIZATIONS</code></td><td>Named app admins, permitted customers, viewer/operator/approver permissions, separate privileged-access authority.</td></tr>
+<tr><td><code>INTERNAL_ADMIN_ROSTER</code></td><td>Approved 84.51 employee identities, verified corporate email, eligibility status, reviewer.</td></tr>
+<tr><td><code>ADMIN_ACCOUNT_ACCESS</code></td><td>Per admin and account: requested/observed ACCOUNTADMIN grant, reason, approver, review/expiry, timestamps, workflow state.</td></tr>
+<tr><td><code>IMPORT_BATCHES</code></td><td>Upload metadata, customer/account, hashes, requester, validation and approval state.</td></tr>
+<tr><td><code>IMPORT_ROWS</code></td><td>Original row number, normalized input, requested action, validation findings.</td></tr>
+<tr><td><code>USER_CONTROL</code></td><td>Account and username, identity, desired state, observed disabled flag, policy, MFA evidence, last verification.</td></tr>
+<tr><td><code>USER_ROLE_DESIRED</code></td><td>Approved role assignments managed by the app.</td></tr>
+<tr><td><code>USER_ROLE_OBSERVED</code></td><td>Verified direct grants, including externally managed grants.</td></tr>
+<tr><td><code>OPERATIONS</code></td><td>Immutable approved actions, payload/version, requester/approver, attempts, queue status.</td></tr>
+<tr><td><code>OPERATION_STEPS</code></td><td>Request UUID, API statement handle, step outcome, timestamps, redacted error.</td></tr>
+<tr><td><code>AUDIT_EVENTS</code></td><td>Append-only import, approval, execution, handoff, recovery, and reconciliation history.</td></tr>
+</tbody></table></div>
+
+<h3>State dimensions</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Dimension</th><th>Values</th></tr></thead>
+<tbody>
+<tr><td>Desired user state</td><td>ENABLED, DISABLED</td></tr>
+<tr><td>Operation state</td><td>PENDING_APPROVAL, QUEUED, RUNNING, SUCCEEDED, PARTIAL, FAILED, BLOCKED, CANCELLED</td></tr>
+<tr><td>Observed state</td><td>Existence and disabled flag &mdash; each true / false / unknown, with verification time</td></tr>
+<tr><td>Onboarding state</td><td>PROVISIONING, PROVISIONED_PENDING_HANDOFF, HANDOFF_ISSUED, DISABLED</td></tr>
+<tr><td>MFA evidence</td><td>REQUIRED_NOT_YET_OBSERVED, ENROLLED, UNKNOWN, DRIFT</td></tr>
+<tr><td>Identity class</td><td>CPG_CUSTOMER, INTERNAL_ADMIN (set by trusted workflow, never by CSV)</td></tr>
+<tr><td>Internal privileged access</td><td>PENDING_APPROVAL, AWAITING_MFA, GRANT_PENDING, GRANTED, REVOKE_PENDING, REVOKED, BLOCKED</td></tr>
+</tbody></table></div>
+<div class="note">Attaching a required-MFA policy does not prove enrollment. An unreachable account does not prove disablement. Direct grants do not represent the full inherited privilege graph.</div>
+<p>Uniqueness, queue claiming, and concurrency are enforced through application transactions and version checks rather than relying solely on constraint declarations on standard tables.</p>
+
+<h2 id="csv">5. CSV request contract</h2>
+<p>One row per user-role assignment. Repeated rows for a username must agree on identity, default role, and action.</p>
+<pre><code>username,email,first_name,last_name,role_name,default_role,action
+JANE_SMITH,jane.smith@customer.example,Jane,Smith,CPG_ANALYST,CPG_ANALYST,ONBOARD
+JANE_SMITH,jane.smith@customer.example,Jane,Smith,CPG_WRITER,CPG_ANALYST,ONBOARD
+PAT_LEE,pat.lee@customer.example,Pat,Lee,,,DISABLE</code></pre>
+<p><em>Identities and roles shown are illustrative.</em></p>
+
+<h3>Validation rules</h3>
+<ul>
+  <li>Strict headers, encoding, file-size and row-count limits.</li>
+  <li>Approved email domains, with a documented exception process.</li>
+  <li>Strict username conventions; reject case collisions and ambiguous identifiers.</li>
+  <li>Only existing roles from the account allowlist &mdash; roles are never created from CSV.</li>
+  <li>ACCOUNTADMIN and other privileged or non-compliant roles are always blocked in customer CSVs.</li>
+  <li>Service users, emergency admins, internal identities, and unknown existing users are protected.</li>
+  <li>Passwords, private keys, MFA seeds, SQL text, policy names, and URLs are rejected.</li>
+  <li>Uploaded values render as text; downloadable CSVs are protected against formula injection.</li>
+  <li>Files and normalized payloads are hashed for duplicate detection and approval integrity.</li>
+</ul>
+
+<h3>Import actions</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Action</th><th>Behavior</th></tr></thead>
+<tbody>
+<tr><td>ONBOARD</td><td>Additive and idempotent; replay never recreates users or resets credentials.</td></tr>
+<tr><td>ADD_ROLES</td><td>Adds approved role assignments.</td></tr>
+<tr><td>SET_MANAGED_ROLES (optional)</td><td>Replaces only app-managed grants after previewing removals; external grants preserved.</td></tr>
+<tr><td>DISABLE</td><td>Explicit only &mdash; a missing row never implies offboarding.</td></tr>
+<tr><td>REENABLE</td><td>Separately reviewed; never implied by an onboarding replay.</td></tr>
+</tbody></table></div>
+
+<h2 id="screens">6. Application screens</h2>
+<div class="grid">
+  <div class="card"><h4>Overview</h4><p>Enabled/disabled managed users, pending approvals, handoff/MFA pending, failed operations, stale or drifted inventory. Managed coverage shown distinctly from total account population.</p></div>
+  <div class="card"><h4>Import &amp; review</h4><p>Select account, upload CSV, inspect row errors, preview users, roles, disables, and policy impact. The whole batch is validated first; rejected rows require explicit exclusion.</p></div>
+  <div class="card"><h4>Approval queue</h4><p>Requester, approver, reason/ticket, customer confirmation, payload version. Second-admin approval recommended for bulk actions. Stale approvals rejected.</p></div>
+  <div class="card"><h4>User inventory</h4><p>Filter by account, user, lifecycle/operation/MFA status, and drift. Desired vs observed roles, policy, default role, and redacted history.</p></div>
+  <div class="card"><h4>Internal admin access</h4><p>Restricted to privileged operators/approvers. Roster-based selection, per-account ACCOUNTADMIN grant/revoke previews, review dates, MFA evidence.</p></div>
+  <div class="card"><h4>Operations &amp; health</h4><p>Step-level results, API handles, retry eligibility, paused accounts, credential/network/policy failures. Refresh triggers reconciliation only.</p></div>
+</div>
+
+<h2 id="auth-policy">7. Authentication policy baseline</h2>
+<p>Each customer account is bootstrapped through a separately approved process:</p>
+<ul>
+  <li>Dedicated local policy schema where needed.</li>
+  <li>Versioned customer-human policy: PASSWORD with MFA enrollment REQUIRED.</li>
+  <li>Prefer passkey and TOTP (subject to client testing); Duo only as an approved alternative.</li>
+  <li>Snowsight remains available for enrollment. Passkeys here act as second factors.</li>
+  <li>Customer policy attached directly to app-managed customer users for the MVP, avoiding unintended changes to internal humans and services.</li>
+  <li>Separate versioned internal-admin policy (PASSWORD + required native MFA; passkeys/security keys recommended). Unknown enrollment evidence blocks ACCOUNTADMIN grants. Existing stronger policies are never weakened.</li>
+  <li>Effective policies are inspected first (user-level overrides account-level); unexpected differences block rather than overwrite.</li>
+  <li>Administrative service key-pair access and tested emergency access are preserved.</li>
+</ul>
+<p>Per-user attachment does not protect unmanaged users; coverage and drift are reported. Account-wide enforcement is a separate hardening change.</p>
+
+<h2 id="onboarding">8. Onboarding workflow</h2>
+<ol>
+  <li>Claim an approved operation and verify version, target, and preconditions.</li>
+  <li>Generate an account-specific key-pair JWT and verify account, service identity, and role.</li>
+  <li>Inspect user existence, roles, and policy. Existing unknown users require explicit adoption approval.</li>
+  <li>Ensure the customer policy exists and matches the approved version.</li>
+  <li>Create the PERSON user initially disabled, with no centrally chosen password.</li>
+  <li>Attach the policy, grant allowed roles, and grant the default role.</li>
+  <li>Verify user type, policy, and grants before enabling.</li>
+  <li>Generate a password-setup/reset link on explicit authorized request (flow piloted first).</li>
+  <li>Initiate MFA enrollment; Snowflake emails verified addresses, otherwise an enrollment URL is returned for secure delivery.</li>
+  <li>Record verified configuration; track provisioning, handoff, and MFA enrollment separately.</li>
+</ol>
+<div class="info">Password-reset links are single-use and expire after 12 hours. They are generated near delivery and never on import replay.</div>
+<h3>Sensitive handoff</h3>
+<p>The MVP uses a restricted admin workflow and an approved customer communication channel. Reset and enrollment links are never stored in ordinary audit tables, logs, exports, or caches. Customer MFA seeds and passkeys remain under customer control, and no confidential data is sent to unapproved external services.</p>
+
+<h2 id="internal-admin">9. Internal 84.51 ACCOUNTADMIN workflow</h2>
+<p>A separate trusted action family &mdash; not an exception to the customer CSV allowlist.</p>
+<pre class="mermaid">
+flowchart LR
+  R[Roster validation] --> AP[Independent approval]
+  AP --> V[Verify target &amp; boundaries]
+  V --> U[Create disabled PERSON user<br/>+ admin MFA policy<br/>+ low-privilege default]
+  U --> H[Secure password &amp; MFA handoff]
+  H --> M{MFA enrollment<br/>verified?}
+  M -- No --> B[AWAITING_MFA / BLOCKED]
+  M -- Yes --> G[Revalidate &amp; grant ACCOUNTADMIN<br/>directly to user]
+  G --> REC[Record GRANTED + scheduled reconciliation]
+</pre>
+<ol>
+  <li>Validate the employee against the approved roster (verified corporate email and eligibility; a domain alone is insufficient).</li>
+  <li>Require approval from another authorized approver &mdash; no self-approval. Approval is bound to person, exact accounts, reason, review/expiry, and versions.</li>
+  <li>Verify target account, privileged worker identity, and protected-user boundaries. Never convert customer or service users.</li>
+  <li>Create an initially disabled PERSON user with the internal-admin MFA policy and a low-privilege default role (never ACCOUNTADMIN).</li>
+  <li>Complete secure password setup and MFA enrollment; ACCOUNTADMIN is not yet granted.</li>
+  <li>Confirm actual MFA enrollment; a required policy or sent invitation alone does not satisfy the gate.</li>
+  <li>Revalidate immediately before granting ACCOUNTADMIN directly to the user, then verify remotely.</li>
+  <li>Record GRANTED state with evidence and review/expiry date. The admin selects ACCOUNTADMIN explicitly in Snowsight when needed.</li>
+  <li>Reconcile grants and policy drift on a schedule; unauthorized or expired grants are raised for revocation (expiry is application-enforced).</li>
+</ol>
+<h3>Revocation and employee offboarding</h3>
+<ul>
+  <li><strong>REVOKE_ACCOUNTADMIN</strong> removes only the privileged grant.</li>
+  <li><strong>DISABLE_INTERNAL_ADMIN</strong> disables the user in selected accounts and verifies the outcome.</li>
+  <li>Departures are reconciled against every managed-account assignment, including partial failures.</li>
+  <li>Before removal, remaining human-admin and emergency coverage is checked (Snowflake recommends at least two ACCOUNTADMIN users, never as default role). Emergency disabling of a compromised identity is never silently blocked; overrides are recorded and alerted.</li>
+  <li>Ownership or other grants may remain after revocation and are handled through explicit approved cleanup.</li>
+</ul>
+
+<h2 id="offboarding">10. Offboarding workflow</h2>
+<ol>
+  <li>Select users or upload explicit DISABLE requests; record account, reason, and approval.</li>
+  <li>Set desired state to DISABLED and queue the action.</li>
+  <li>Verify the target is an app-managed customer human, not a protected identity.</li>
+  <li>Disable the user via the target SQL API.</li>
+  <li>Read back remote state and record verified disablement.</li>
+  <li>Retain user/role history; users are not dropped by default. Role revocation is a separate optional step.</li>
+</ol>
+<p>Already-disabled users report verified success; absent users show NOT_FOUND; unreachable accounts remain pending with stale/unknown observation. Disabling a user blocks login and new queries and aborts running/scheduled queries; existing-session behavior is validated during the pilot.</p>
+
+<h2 id="execution">11. Reliable SQL API execution</h2>
+<ul>
+  <li>Short-lived key-pair JWTs with correct account/user canonicalization and fingerprint.</li>
+  <li>Regional endpoint hostname kept separate from JWT account identity.</li>
+  <li>Explicit execution role on every request; one bounded step per request with durable request UUID and statement handle.</li>
+  <li>Asynchronous completion and result partitions handled.</li>
+  <li>Documented resubmission semantics with preserved request IDs; credential issuance is never blindly replayed.</li>
+  <li>Target state re-read when outcomes are uncertain; resume from verified steps.</li>
+  <li>Conflicting account/user actions serialized; a newer disable supersedes stale onboarding work.</li>
+  <li>Bounded polling, retries/backoff, circuit breakers, and per-account pause controls.</li>
+  <li>Fixed SQL action templates with bindings and validated/quoted identifiers.</li>
+  <li>Registered HTTPS destinations only, TLS verification, no cross-host redirects.</li>
+</ul>
+
+<h2 id="controls">12. Roles, credentials, and network controls</h2>
+<ul>
+  <li>Dedicated app-owner, viewer, operator, approver, bootstrap, and worker roles. The UI owner does not hold ACCOUNTADMIN or read target secrets.</li>
+  <li>Viewer identity via <code>st.user.user_name</code>; authorization enforced in trusted command paths and revalidated by the worker.</li>
+  <li>Target service user with a narrow custom role for user management, allowed role grants, and policies. The ordinary worker cannot grant ACCOUNTADMIN.</li>
+  <li>A separate privileged worker and credential path handles internal-admin grants/revocations, with narrow permissions, fixed actions, per-account approvals, and monitoring.</li>
+  <li>Independent per-account keys stored in Snowflake secret objects; narrow external access integrations.</li>
+  <li>Target network policies verified to admit the worker path; connectivity (public or private) tested before deployment.</li>
+  <li>Keys, JWTs, passwords, MFA seeds, and credential links never appear in source, inventory, logs, or exports.</li>
+</ul>
+
+<h2 id="reconciliation">13. Reconciliation</h2>
+<p>Scheduled and on-demand read-only checks verify user existence/type, disabled flag, direct grants, defaults, policy version, and available MFA enrollment evidence, using immediate metadata rather than delayed usage views.</p>
+<p>Reconciliation detects drift by default; it does not silently revoke grants, repair policies, or re-enable users. For internal admins it also verifies ACCOUNTADMIN grants, roster eligibility, approval validity, default roles, MFA evidence, and emergency coverage.</p>
+
+<h2 id="testing">14. Acceptance tests</h2>
+<ul>
+  <li>CSVs cannot redirect accounts, inject SQL, target protected users, or bypass role restrictions.</li>
+  <li>Policy attachment precedes activation; administrative key-pair access remains intact.</li>
+  <li>Password setup and MFA enrollment work with Snowsight and actual customer clients.</li>
+  <li>Duplicate uploads and UI reruns do not duplicate provisioning or reset links.</li>
+  <li>Browser closure does not stop execution.</li>
+  <li>Expired JWTs, permission failures, timeouts, async responses, and result partitions are handled.</li>
+  <li>Partial remote execution and failed central writes reconcile safely.</li>
+  <li>Concurrent disable/onboard actions cannot re-enable through stale work.</li>
+  <li>Offboarding is remotely verified before central completion.</li>
+  <li>Unknown, absent, stale, MFA-required, and enrolled states remain distinct.</li>
+  <li>Attribution, secret isolation, sensitive handoff, and retention are tested.</li>
+  <li>Customer CSVs, ordinary operators, and ordinary worker credentials cannot grant ACCOUNTADMIN.</li>
+  <li>Internal-admin grants require roster eligibility, independent approval, verified MFA, and remote verification.</li>
+  <li>Internal admins default to a lower-privilege role; revocation and disablement remain distinct.</li>
+  <li>Expiry enforcement, cross-account departures, partial revocation failures, and emergency overrides are tested.</li>
+</ul>
+
+<h2 id="phases">15. Delivery phases</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Phase</th><th>Scope</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Confirm EIGHTY451, pilot account, roles/policies, network path, credential strategy, and runtime prerequisites.</td></tr>
+<tr><td>2</td><td>Build registry, CSV validation, inventory, diff, and dry-run review with no remote changes.</td></tr>
+<tr><td>3</td><td>Single-account sandbox pilot: customer onboarding/offboarding plus internal-admin provisioning, MFA-gated grant, revocation, and disablement.</td></tr>
+<tr><td>4</td><td>Harden task-driven execution, approvals, retries, reconciliation, and sensitive handoff.</td></tr>
+<tr><td>5</td><td>Validate with a small customer cohort and the operational support workload.</td></tr>
+<tr><td>6</td><td>Incremental rollout with account pause controls and measured concurrency.</td></tr>
+</tbody></table></div>
+<p>Before deployment, confirm database/schema/warehouse choices, sandbox target, approved role lists, key/network compatibility, delivery mechanism, retention, and approval rules.</p>
+
+<h2 id="docs">16. Reference documentation</h2>
+<ul>
+  <li><a href="https://docs.snowflake.com/en/developer-guide/sql-api/authenticating">SQL API authentication</a></li>
+  <li><a href="https://docs.snowflake.com/en/developer-guide/sql-api/submitting-requests">SQL API submissions</a></li>
+  <li><a href="https://docs.snowflake.com/en/developer-guide/sql-api/reference">SQL API reference</a></li>
+  <li><a href="https://docs.snowflake.com/en/developer-guide/external-network-access/creating-using-external-network-access">External access integrations</a></li>
+  <li><a href="https://docs.snowflake.com/en/developer-guide/streamlit/object-management/security">Streamlit security</a></li>
+  <li><a href="https://docs.snowflake.com/en/developer-guide/streamlit/object-management/owners-rights">Streamlit owner rights</a></li>
+  <li><a href="https://docs.snowflake.com/en/developer-guide/streamlit/app-development/personalization">Streamlit viewer identity</a></li>
+  <li><a href="https://docs.snowflake.com/en/user-guide/authentication-policies">Authentication policies</a></li>
+  <li><a href="https://docs.snowflake.com/en/user-guide/security-mfa">Native MFA</a></li>
+  <li><a href="https://docs.snowflake.com/en/sql-reference/sql/alter-user">ALTER USER</a></li>
+  <li><a href="https://docs.snowflake.com/en/user-guide/security-access-control-configure">Configuring access control and role assignments</a></li>
+  <li><a href="https://docs.snowflake.com/en/user-guide/security-access-control-considerations">Access control considerations and ACCOUNTADMIN best practices</a></li>
+</ul>
+
+<footer>Prepared by Snowflake for 84.51&deg;. Design proposal &mdash; subject to validation and separate authorization before implementation.</footer>
+
+<script src="/libs/mermaid@10.9.6/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({ startOnLoad: true, securityLevel: 'strict', theme: 'default' });
+</script>
+</body>
+</html>

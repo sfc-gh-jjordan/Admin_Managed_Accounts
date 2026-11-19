@@ -9,6 +9,12 @@ from lib.db import CTL, account_picker, can, command, query, show_result
 st.title("Import and review")
 st.caption("Upload a customer CSV, review every row, then submit for approval. Nothing reaches the target account until approved.")
 
+confirmed = st.session_state.pop("import_submitted", None)
+if confirmed:
+    st.toast("Batch submitted for approval.", icon=":material/check_circle:")
+    st.success(f"Batch **{confirmed['batch_id']}** ({confirmed['rows']} row(s) from `{confirmed['file']}`) was submitted "
+               "successfully and is now in the Approval queue awaiting review.", icon=":material/check_circle:")
+
 account_id = account_picker("import_account", only_enabled=True)
 if not account_id:
     st.stop()
@@ -21,7 +27,7 @@ with st.expander("CSV contract"):
             "JANE_SMITH,jane.smith@customer.example,Jane,Smith,CPG_ANALYST,CPG_ANALYST,ONBOARD\n"
             "PAT_LEE,pat.lee@customer.example,Pat,Lee,,,DISABLE", language="text")
 
-upload = st.file_uploader("Customer CSV", type=["csv"], key="csv_upload")
+upload = st.file_uploader("Customer CSV", type=["csv"], key=f"csv_upload_{st.session_state.get('csv_upload_gen', 0)}")
 if upload is None:
     st.stop()
 
@@ -120,5 +126,13 @@ if submitted:
     if not saved.get("ok"):
         show_result(saved, "")
         st.stop()
-    res = command("SUBMIT_BATCH", {"batch_id": saved["result"]["batch_id"]})
-    show_result(res, "Batch submitted for approval.")
+    batch_id = saved["result"]["batch_id"]
+    res = command("SUBMIT_BATCH", {"batch_id": batch_id})
+    if not res.get("ok"):
+        show_result(res, "")
+        st.stop()
+    st.session_state["import_submitted"] = {"batch_id": batch_id, "file": upload.name,
+                                            "rows": int((~edited["exclude"]).sum())}
+    # New uploader key clears the file so the batch can't be submitted twice.
+    st.session_state["csv_upload_gen"] = st.session_state.get("csv_upload_gen", 0) + 1
+    st.rerun()

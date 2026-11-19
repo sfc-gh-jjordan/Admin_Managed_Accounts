@@ -47,7 +47,7 @@ with tab_approve:
     else:
         pend.insert(0, "select", False)
         ed = st.data_editor(pend, hide_index=True, disabled=[c for c in pend.columns if c != "select"],
-                            key="priv_pending", alt="Pending internal admin access requests")
+                            key="priv_pending")
         ids = ed[ed["select"]]["ACCESS_ID"].tolist()
         if st.button("Approve selected", type="primary", icon=":material/verified_user:",
                      disabled=not ids or not can("priv")):
@@ -61,7 +61,7 @@ with tab_active:
                     WHERE WORKFLOW_STATE NOT IN ('PENDING_APPROVAL','REVOKED') ORDER BY ACCOUNT_ID, TARGET_USERNAME""")
     act.insert(0, "select", False)
     ed = st.data_editor(act, hide_index=True, disabled=[c for c in act.columns if c != "select"],
-                        key="priv_active", alt="Internal admin access records")
+                        key="priv_active")
     ids = ed[ed["select"]]["ACCESS_ID"].tolist()
     with st.form("revoke"):
         action = st.segmented_control("Action", ["REVOKE_ACCOUNTADMIN", "DISABLE_INTERNAL_ADMIN"],

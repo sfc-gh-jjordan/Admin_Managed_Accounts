@@ -96,7 +96,33 @@ def show_grants_of_role(role: str) -> str:
     return f"SHOW GRANTS OF ROLE {ident(role)}"
 
 
+def show_role(role: str) -> str:
+    return f"SHOW ROLES LIKE {like_literal(role)}"
+
+
 # ---------------------------------------------------------------- mutations
+NEW_ROLE_PARENTS = {"SYSADMIN"}
+
+
+def create_role(role: str, comment: str) -> str:
+    """Create an empty customer role (no privileges). Never a system/blocked role."""
+    r = (role or "").strip().upper()
+    if r in BLOCKED_CUSTOMER_ROLES or r == "PUBLIC":
+        raise ValidationError(f"role {r} cannot be created")
+    return (f"CREATE ROLE IF NOT EXISTS {ident(r)} "
+            f"COMMENT = {lit(comment, re.compile(r'^[A-Za-z0-9 :._-]{0,200}$'), 'comment')}")
+
+
+def grant_role_to_parent(role: str, parent: str) -> str:
+    """Attach a newly created role under an approved parent (SYSADMIN only)."""
+    r, p = (role or "").strip().upper(), (parent or "").strip().upper()
+    if p not in NEW_ROLE_PARENTS:
+        raise ValidationError(f"parent role {p} not allowed")
+    if r in BLOCKED_CUSTOMER_ROLES or r == "PUBLIC":
+        raise ValidationError(f"role {r} is blocked")
+    return f"GRANT ROLE {ident(r)} TO ROLE {ident(p)}"
+
+
 def create_person_user_disabled(username: str, email: str, first: Optional[str],
                                 last: Optional[str], comment: str) -> str:
     # No password is set centrally. User is created DISABLED.

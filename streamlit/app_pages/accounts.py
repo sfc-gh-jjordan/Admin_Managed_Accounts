@@ -9,7 +9,7 @@ st.caption("Accounts discovered from the organization. An account is usable only
            "registration, and a successful preflight. Credentials are never shown or entered here.")
 
 df = visible_accounts()
-st.dataframe(df, hide_index=True, alt="Registered managed accounts")
+st.dataframe(df, hide_index=True)
 
 account_id = st.selectbox("Manage account", df["ACCOUNT_ID"].tolist(), index=None, key="reg_account")
 if not account_id:
@@ -76,7 +76,6 @@ edited = st.data_editor(
     hide_index=True,
     column_config={"APPROVAL_CLASS": st.column_config.SelectboxColumn(options=["STANDARD", "ELEVATED", "BLOCKED"])},
     key="role_catalog",
-    alt="Allowed roles for this account",
 )
 if st.button("Save role catalog", icon=":material/save:", disabled=not can("priv", account_id)):
     show_result(command("UPSERT_ROLES", {"account_id": account_id,

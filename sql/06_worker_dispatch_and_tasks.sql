@@ -1,6 +1,5 @@
 /* =====================================================================
    06_worker_dispatch_and_tasks.sql
-   - Upload worker Python modules to the code stage
    - Dispatcher procedure (fans out to per-account EXEC_<ID> procedures)
    - Scheduled tasks: dispatch, reconcile, handoff purge
    Run as ACCT_ADMIN_WORKER (PUT from SnowSQL / Snow CLI).
@@ -128,9 +127,30 @@ AS
   WHERE EXPIRES_AT <= CURRENT_TIMESTAMP() OR DELIVERED_AT IS NOT NULL;
 
 -- Tasks are created suspended. Resume after pilot validation:
--- ALTER TASK ACCT_ADMIN_DB.WORKER.PURGE_HANDOFF_TASK RESUME;
--- ALTER TASK ACCT_ADMIN_DB.WORKER.RECONCILE_TASK     RESUME;
--- ALTER TASK ACCT_ADMIN_DB.WORKER.DISPATCH_TASK      RESUME;
+ALTER TASK ACCT_ADMIN_DB.WORKER.PURGE_HANDOFF_TASK RESUME;
+ALTER TASK ACCT_ADMIN_DB.WORKER.RECONCILE_TASK     RESUME;
+ALTER TASK ACCT_ADMIN_DB.WORKER.DISPATCH_TASK      RESUME;
 
 -- Allow the app owner (owner's-rights command procs) to trigger on-demand runs
 GRANT USAGE ON PROCEDURE ACCT_ADMIN_DB.WORKER.RUN_ACCOUNT(VARCHAR, VARCHAR) TO ROLE ACCT_ADMIN_OWNER;
+
+-- ---------------------------------------------------------------------
+-- Per-account usage (after 05 registered connectivity for the account)
+-- ---------------------------------------------------------------------
+-- Preflight (verifies JWT, host, CURRENT_ACCOUNT(), role) - no changes:
+USE ROLE ACCT_ADMIN_WORKER;
+CALL ACCT_ADMIN_DB.WORKER.RUN_ACCOUNT('CPG_ACME', 'PREFLIGHT');
+--Expected: the result contains "ok": true and CUSTOMER_ACCOUNTS.BOOTSTRAP_STATUS becomes VERIFIED
+
+--Verify BOOTSTRAP_STATUS = 'VERIFIED'
+SELECT ACCOUNT_ID, ACCOUNT_LOCATOR, REGION, SQL_API_HOST, JWT_ACCOUNT_IDENTIFIER, BOOTSTRAP_STATUS, IS_ENABLED
+FROM ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS
+WHERE ACCOUNT_ID = 'CPG_ACME'; --Update for given managed account
+
+-- Enable after successful preflight connectivity check:
+UPDATE ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS SET IS_ENABLED = TRUE WHERE ACCOUNT_ID = 'CPG_ACME';
+
+--Verify IS_ENABLED = TRUE
+SELECT ACCOUNT_ID, ACCOUNT_LOCATOR, REGION, SQL_API_HOST, JWT_ACCOUNT_IDENTIFIER, BOOTSTRAP_STATUS, IS_ENABLED
+FROM ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS
+WHERE ACCOUNT_ID = 'CPG_ACME'; --Update for given managed account

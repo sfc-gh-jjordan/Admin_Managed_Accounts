@@ -6,11 +6,22 @@
      - authentication policies for customer humans and internal admins
      - a network policy for the service user (optional, recommended)
 
-   Replace <<...>> placeholders. Generate the key pair OUTSIDE Snowflake:
-     openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out sqlapi_<acct>.p8 -nocrypt
-     openssl rsa -in sqlapi_<acct>.p8 -pubout -out sqlapi_<acct>.pub
+   Replace <acct> placeholders with the ACCOUNT_ID FROM ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS WHERE BOOTSTRAP_STATUS = 'NOT_BOOTSTRAPPED'
+   Generate the key pair OUTSIDE Snowflake in a terminal window:
+
+   --Private Key  
+   openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out sqlapi_<acct>.p8 -nocrypt
+   
+   --Public Key
+   openssl rsa -in sqlapi_<acct>.p8 -pubout -out sqlapi_<acct>.pub
+   
    Use a distinct key pair per account. The private key goes ONLY into
    the central SECRET (05_account_connectivity.sql).
+
+   *********** IMPORTANT!! **********
+   Treat the .p8 file as a credential. 
+   Store it only in the Snowflake secret created in step 6.3, then delete it from the workstation. 
+   Never commit it to source control.
    ===================================================================== */
 
 USE ROLE ACCOUNTADMIN;
@@ -27,6 +38,8 @@ CREATE SCHEMA   IF NOT EXISTS ADMIN_POLICIES.POLICIES;
 --      SHOW AUTHENTICATION POLICIES ON ACCOUNT;
 --    Never weaken a stronger existing policy.
 -- ---------------------------------------------------------------------
+SHOW AUTHENTICATION POLICIES ON ACCOUNT;
+
 CREATE AUTHENTICATION POLICY IF NOT EXISTS ADMIN_POLICIES.POLICIES.CPG_HUMAN_MFA_V1
   AUTHENTICATION_METHODS = ('PASSWORD')
   MFA_ENROLLMENT         = REQUIRED
@@ -49,11 +62,22 @@ CREATE AUTHENTICATION POLICY IF NOT EXISTS ADMIN_POLICIES.POLICIES.SQLAPI_SERVIC
 --    Allow only the egress path of the central account's external
 --    access integration. Verify the correct ranges / private
 --    connectivity for EIGHTY451 before enabling.
+--
+--  In the EIGHTY451 account_locator aka the central account run the below to get the CIDR RANGE
+--  SELECT
+--  value:"ipv4_prefix"::VARCHAR  AS ip_cidr_range,
+--  value:"effective"::TIMESTAMP  AS effective_date,
+--  value:"expires"::TIMESTAMP    AS expiration_date
+--  FROM TABLE(FLATTEN(INPUT => PARSE_JSON(SYSTEM$GET_SNOWFLAKE_EGRESS_IP_RANGES())));
+--
 -- ---------------------------------------------------------------------
--- CREATE NETWORK RULE ADMIN_POLICIES.POLICIES.CENTRAL_EGRESS
---   MODE = INGRESS TYPE = IPV4 VALUE_LIST = (<<central egress CIDRs>>);
--- CREATE NETWORK POLICY SQLAPI_SERVICE_NP
---   ALLOWED_NETWORK_RULE_LIST = ('ADMIN_POLICIES.POLICIES.CENTRAL_EGRESS');
+
+--Replace the CIDRs from the above results from the central account
+CREATE NETWORK RULE ADMIN_POLICIES.POLICIES.CENTRAL_EGRESS
+  MODE = INGRESS TYPE = IPV4 VALUE_LIST = (<<central egress CIDRs>>);
+
+CREATE NETWORK POLICY SQLAPI_SERVICE_NP
+  ALLOWED_NETWORK_RULE_LIST = ('ADMIN_POLICIES.POLICIES.CENTRAL_EGRESS');
 
 -- ---------------------------------------------------------------------
 -- 4. Service user for SQL API.
@@ -67,7 +91,8 @@ CREATE USER IF NOT EXISTS SVC_ACCT_ADMIN
   COMMENT        = 'Central 84.51 managed-accounts SQL API worker (do not modify)';
 
 ALTER USER SVC_ACCT_ADMIN SET AUTHENTICATION POLICY ADMIN_POLICIES.POLICIES.SQLAPI_SERVICE_V1;
--- ALTER USER SVC_ACCT_ADMIN SET NETWORK_POLICY = SQLAPI_SERVICE_NP;
+
+ALTER USER SVC_ACCT_ADMIN SET NETWORK_POLICY = SQLAPI_SERVICE_NP;
 
 GRANT ROLE ACCOUNTADMIN TO USER SVC_ACCT_ADMIN;
 
@@ -89,14 +114,18 @@ GRANT ROLE ACCT_USER_ADMIN TO USER SVC_ACCT_ADMIN;
 -- 5. Capture values for the central registry
 -- ---------------------------------------------------------------------
 DESC USER SVC_ACCT_ADMIN;                       -- copy RSA_PUBLIC_KEY_FP (SHA256:...)
+
 SELECT CURRENT_ORGANIZATION_NAME() AS ORG,
        CURRENT_ACCOUNT_NAME()      AS ACCOUNT_NAME,
        CURRENT_ACCOUNT()           AS ACCOUNT_LOCATOR,
        CURRENT_REGION()            AS REGION;
 
 -- ---------------------------------------------------------------------
--- 6. Customer roles that the app may grant. Roles are never created
---    from CSV - create/approve them here, then add to ROLE_CATALOG.
+-- 6. Customer roles that the app may grant. Pre-create shared roles here
+--    and add them to ROLE_CATALOG. A CSV import may also request a role
+--    with no catalog entry: once approved, the worker (EXEC_ROLE must be
+--    ACCOUNTADMIN) creates it empty, grants it to SYSADMIN and catalogs it.
+-- TODO:  What customer roles are required and are they the same for each account?
 -- ---------------------------------------------------------------------
 -- CREATE ROLE IF NOT EXISTS CPG_ANALYST;
 -- CREATE ROLE IF NOT EXISTS CPG_WRITER;

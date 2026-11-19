@@ -11,6 +11,9 @@ EXPECTED_HEADERS = ["username", "email", "first_name", "last_name", "role_name",
 ACTIONS = {"ONBOARD", "ADD_ROLES", "SET_MANAGED_ROLES", "DISABLE", "REENABLE"}
 MAX_BYTES = 1_000_000
 MAX_ROWS = 2_000
+MAX_NEW_ROLES = 10
+# Snowflake system roles; never auto-created or granted from CSV regardless of BLOCKED_ROLES contents.
+SYSTEM_ROLES = {"ACCOUNTADMIN", "SECURITYADMIN", "USERADMIN", "SYSADMIN", "ORGADMIN", "GLOBALORGADMIN", "PUBLIC"}
 
 USER_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 ROLE_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,254}$")
@@ -55,12 +58,20 @@ def parse(data: bytes) -> list[dict]:
 
 def validate(rows: list[dict], *, allowed_roles: dict[str, bool], blocked_roles: Iterable[str],
              email_domains: Iterable[str], protected_users: Iterable[str],
-             existing_users: dict[str, dict]) -> list[dict]:
+             existing_users: dict[str, dict], disabled_roles: Iterable[str] = (),
+             allow_new_roles: bool = True, max_new_roles: int = MAX_NEW_ROLES) -> list[dict]:
     """
     allowed_roles: ROLE_NAME -> is_default_eligible (active catalog entries)
+    disabled_roles: catalog entries that are inactive or APPROVAL_CLASS BLOCKED (never re-enabled by CSV)
     existing_users: USERNAME -> {"IS_MANAGED": bool, "IDENTITY_CLASS": str}
+    Roles with no catalog row at all are marked creates_role=True (created on approval) when allow_new_roles.
     """
     blocked = {r.upper() for r in blocked_roles}
+    disabled = {r.upper() for r in disabled_roles}
+
+    def is_new(name: str) -> bool:
+        return (allow_new_roles and bool(ROLE_RE.match(name)) and name not in allowed_roles
+                and name not in disabled and name not in blocked and name not in SYSTEM_ROLES)
     domains = {d.lower().lstrip("@") for d in email_domains}
     protected = {p.upper() for p in protected_users}
     out = []
@@ -69,6 +80,8 @@ def validate(rows: list[dict], *, allowed_roles: dict[str, bool], blocked_roles:
 
     for r in rows:
         f: list[str] = []
+        notes: list[str] = []
+        creates_role = False
         username = r["username"].upper()
         action = r["action"].upper()
         role = r["role_name"].upper()
@@ -104,12 +117,19 @@ def validate(rows: list[dict], *, allowed_roles: dict[str, bool], blocked_roles:
                     f.append(f"{k}: invalid characters")
             if not role:
                 f.append("role_name: required")
-            elif role in blocked:
+            elif role in blocked or (role in SYSTEM_ROLES and role not in allowed_roles):
                 f.append(f"role_name: {role} is blocked")
+            elif role in disabled:
+                f.append("role_name: disabled or blocked in this account's role catalog")
+            elif is_new(role):
+                creates_role = True
+                notes.append(f"role_name: {role} will be created (new role)")
             elif not ROLE_RE.match(role) or role not in allowed_roles:
                 f.append("role_name: not in this account's role catalog")
             if default_role:
-                if default_role in blocked or default_role not in allowed_roles:
+                if is_new(default_role):
+                    pass  # new roles are created default-eligible
+                elif default_role in blocked or default_role not in allowed_roles:
                     f.append("default_role: not allowed")
                 elif not allowed_roles.get(default_role):
                     f.append("default_role: not default-eligible")
@@ -125,8 +145,19 @@ def validate(rows: list[dict], *, allowed_roles: dict[str, bool], blocked_roles:
             "row_number": r["row_number"], "username": username, "email": r["email"] or None,
             "first_name": r["first_name"] or None, "last_name": r["last_name"] or None,
             "role_name": role or None, "default_role": default_role or None, "action": action,
-            "is_valid": not f, "findings": f,
+            "is_valid": not f, "findings": f, "notes": notes, "creates_role": creates_role,
         })
+
+    # cap distinct new roles per batch
+    seen_new: list[str] = []
+    for o in out:
+        if o["creates_role"] and o["role_name"] not in seen_new:
+            seen_new.append(o["role_name"])
+    over = set(seen_new[max_new_roles:])
+    for o in out:
+        if o["creates_role"] and o["role_name"] in over:
+            o["findings"].append(f"role_name: more than {max_new_roles} new roles in one batch")
+            o["is_valid"] = False
 
     # default role must be among the user's requested roles
     roles_by_user: dict[str, set] = {}
@@ -137,4 +168,14 @@ def validate(rows: list[dict], *, allowed_roles: dict[str, bool], blocked_roles:
         if o["default_role"] and o["default_role"] not in roles_by_user.get(o["username"], set()):
             o["findings"].append("default_role: must be one of the user's requested roles")
             o["is_valid"] = False
+    return out
+
+
+def new_roles(results: list[dict], excluded_rows: Iterable[int] = ()) -> list[str]:
+    """Distinct roles to be created by the valid, non-excluded rows, in first-seen order."""
+    skip = set(excluded_rows)
+    out: list[str] = []
+    for o in results:
+        if o["creates_role"] and o["is_valid"] and o["row_number"] not in skip and o["role_name"] not in out:
+            out.append(o["role_name"])
     return out

@@ -33,7 +33,6 @@ edited = st.data_editor(
     column_config={"select": st.column_config.CheckboxColumn("Select"),
                    "PAYLOAD": st.column_config.JsonColumn("Payload", width="medium")},
     key=f"appr_editor_{family}",
-    alt="Operations pending approval",
 )
 chosen = edited[edited["select"]]
 own = chosen[chosen["REQUESTED_BY"].str.upper() == me]

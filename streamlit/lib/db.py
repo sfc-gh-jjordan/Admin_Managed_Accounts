@@ -2,22 +2,30 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Optional
 
 import pandas as pd
 import streamlit as st
 
 CTL = "ACCT_ADMIN_DB.CONTROL"
+# Local preview only: ACCT_ADMIN_MOCK=1 serves sample data from lib/mock_data.py and never contacts Snowflake.
+MOCK = os.environ.get("ACCT_ADMIN_MOCK") == "1"
 
 
 @st.cache_resource
 def session():
+    if MOCK:
+        from lib.mock_data import MockSession
+        return MockSession()
     from snowflake.snowpark.context import get_active_session
     return get_active_session()
 
 
 def viewer() -> str:
     """Viewer identity (owner's-rights app: CURRENT_USER is not the viewer)."""
+    if MOCK:
+        return os.environ.get("ACCT_ADMIN_MOCK_USER", "ADMIN_TWO").upper()
     user = getattr(st, "user", None) or getattr(st, "experimental_user", None)
     name = getattr(user, "user_name", None) if user is not None else None
     if not name:

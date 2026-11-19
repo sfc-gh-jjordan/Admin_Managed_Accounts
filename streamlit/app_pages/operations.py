@@ -24,7 +24,7 @@ ops = query(f"""SELECT OPERATION_ID, REQUESTED_AT, ACCOUNT_ID, USERNAME, ACTION,
                 FROM {CTL}.OPERATIONS WHERE {' AND '.join(where)} ORDER BY REQUESTED_AT DESC LIMIT 1000""", params)
 ops.insert(0, "select", False)
 ed = st.data_editor(ops, hide_index=True, disabled=[c for c in ops.columns if c != "select"],
-                    key="ops_editor", alt="Operations")
+                    key="ops_editor")
 chosen = ed[ed["select"]]
 
 with st.container(horizontal=True):
@@ -40,7 +40,7 @@ if len(chosen) == 1:
                              STARTED_AT, FINISHED_AT
                       FROM {CTL}.OPERATION_STEPS WHERE OPERATION_ID = ? ORDER BY STEP_NO""",
                   [chosen["OPERATION_ID"].iloc[0]])
-    st.dataframe(steps, hide_index=True, alt="Operation step results")
+    st.dataframe(steps, hide_index=True)
 
 st.subheader("Account health")
 health = query(f"""SELECT ACCOUNT_ID, IS_ENABLED, IS_PAUSED, PAUSE_REASON, CONSECUTIVE_FAILURES, BOOTSTRAP_STATUS,
@@ -48,9 +48,9 @@ health = query(f"""SELECT ACCOUNT_ID, IS_ENABLED, IS_PAUSED, PAUSE_REASON, CONSE
                    FROM {CTL}.CUSTOMER_ACCOUNTS
                    WHERE IS_PAUSED OR CONSECUTIVE_FAILURES > 0 OR BOOTSTRAP_STATUS <> 'VERIFIED'
                    ORDER BY CONSECUTIVE_FAILURES DESC""")
-st.dataframe(health, hide_index=True, alt="Accounts needing attention")
+st.dataframe(health, hide_index=True)
 
 st.subheader("Audit trail")
 audit = query(f"""SELECT EVENT_TS, ACTOR, EVENT_TYPE, ACCOUNT_ID, USERNAME, OPERATION_ID, DETAILS
                   FROM {CTL}.AUDIT_EVENTS ORDER BY EVENT_TS DESC LIMIT 500""")
-st.dataframe(audit, hide_index=True, column_config={"DETAILS": st.column_config.JsonColumn()}, alt="Audit events")
+st.dataframe(audit, hide_index=True, column_config={"DETAILS": st.column_config.JsonColumn()})

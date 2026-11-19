@@ -13,7 +13,8 @@ USE ROLE ORGADMIN;            -- or GLOBALORGADMIN
 USE SECONDARY ROLES ALL;      -- running user must also hold ACCT_ADMIN_OWNER (writes to CONTROL)
 USE WAREHOUSE ACCT_ADMIN_WH;
 
-SHOW ORGANIZATION ACCOUNTS;
+--Modify as needed for the list of managed accounts used by other organizations
+SHOW ACCOUNTS LIKE 'EIGHTY451%_EXT';
 
 -- Stage results so the owner role can merge them
 CREATE OR REPLACE TEMPORARY TABLE ACCT_ADMIN_DB.CONTROL.TMP_ORG_ACCOUNTS AS
@@ -33,7 +34,7 @@ WHERE ACCOUNT_LOCATOR = CURRENT_ACCOUNT();
 -- ---------------------------------------------------------------------
 -- Merge into registry. Connectivity values are derived but MUST be
 -- verified by the preflight before the account is enabled.
---   SQL_API_HOST           = <org>-<account>.snowflakecomputing.com
+--   SQL_API_HOST           = <org>-<account>.snowflakecomputing.com  (lowercase, '_' -> '-')
 --   JWT_ACCOUNT_IDENTIFIER = <ORG>-<ACCOUNT>   (uppercase, '_' kept, '.' -> '-')
 -- ---------------------------------------------------------------------
 MERGE INTO ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS t
@@ -41,7 +42,7 @@ USING (
     SELECT  UPPER(REGEXP_REPLACE(ACCOUNT_NAME, '[^A-Za-z0-9_]', '_'))               AS ACCOUNT_ID,
             ORGANIZATION_NAME, ACCOUNT_NAME, ACCOUNT_LOCATOR, REGION,
             SPLIT_PART(REGION, '_', 1)                                              AS CLOUD,
-            LOWER(REPLACE(REGEXP_REPLACE(ACCOUNT_URL, '^https?://', ''), '/', ''))  AS SQL_API_HOST,
+            LOWER(REPLACE(REPLACE(REGEXP_REPLACE(ACCOUNT_URL, '^https?://', ''), '/', ''), '_', '-'))  AS SQL_API_HOST,
             UPPER(ORGANIZATION_NAME || '-' || REPLACE(ACCOUNT_NAME, '.', '-'))      AS JWT_ACCOUNT_IDENTIFIER,
             COALESCE(ACCOUNT_COMMENT, ACCOUNT_NAME)                                 AS DISPLAY_NAME
     FROM ACCT_ADMIN_DB.CONTROL.TMP_ORG_ACCOUNTS

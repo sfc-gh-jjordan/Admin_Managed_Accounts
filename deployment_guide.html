@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="snowflake-source" content="cortex-agent-authored" />
+<title>84.51 Managed Accounts Admin – Deployment Guide</title>
+<script type="application/json" id="snowflake-report-metadata">
+{
+  "generated": "2026-11-19",
+  "intent": "Customer-facing deployment guide for the 84.51 managed accounts user lifecycle admin solution",
+  "dataSources": [
+    { "type": "file", "path": "README.md" },
+    { "type": "file", "path": "sql/" },
+    { "type": "file", "path": "python/" },
+    { "type": "file", "path": "streamlit/" }
+  ],
+  "sections": [
+    { "id": "how-to-use", "title": "How to use this guide" },
+    { "id": "overview", "title": "What you are deploying" },
+    { "id": "prereqs", "title": "Prerequisites" },
+    { "id": "get-code", "title": "Get the code" },
+    { "id": "central", "title": "Central setup (EIGHTY451)" },
+    { "id": "discovery", "title": "Discover organization accounts" },
+    { "id": "onboard-account", "title": "Connect a managed account" },
+    { "id": "worker", "title": "Deploy the worker and tasks" },
+    { "id": "app", "title": "Deploy the Streamlit app",
+      "dataSources": [{ "type": "query", "sql": "SELECT package_name, MAX_BY(version, TRY_TO_NUMBER(SPLIT_PART(version,'.',1))*1e6 + TRY_TO_NUMBER(SPLIT_PART(version,'.',2))*1e3 + TRY_TO_NUMBER(SPLIT_PART(version,'.',3))) AS latest_version, ARRAY_AGG(DISTINCT version) WITHIN GROUP (ORDER BY version DESC) AS all_versions FROM ACCT_ADMIN_DB.INFORMATION_SCHEMA.PACKAGES WHERE language = 'python' AND package_name IN ('streamlit', 'pandas', 'snowflake-snowpark-python') GROUP BY package_name" }] },
+    { "id": "admins", "title": "Assign admin duties" },
+    { "id": "verify", "title": "Verify and pilot" },
+    { "id": "golive", "title": "Go live" },
+    { "id": "operate", "title": "Day-2 operations" },
+    { "id": "csv-roles", "title": "Creating roles from a CSV import" },
+    { "id": "troubleshoot", "title": "Troubleshooting" },
+    { "id": "rollback", "title": "Uninstall / rollback" },
+    { "id": "reference", "title": "Reference documentation" }
+  ],
+  "producerNotes": "Steps mirror sql/01-08 and the repository README. Update this guide when scripts change."
+}
+</script>
+<style>
+  :root { color-scheme: light dark; --accent: #29B5E8; --navy: light-dark(#11567F, #7cc8ec); }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+    max-width: 960px; width: 100%; margin: 0 auto; padding: clamp(16px, 4vw, 32px);
+    line-height: 1.55; color: light-dark(#1f2937, #e5e7eb); background: light-dark(#ffffff, #0f172a);
+  }
+  h1, h2, h3 { color: light-dark(#0f172a, #f1f5f9); line-height: 1.25; }
+  h2 { margin-top: 2.4em; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+  h3 { margin-top: 1.6em; color: var(--navy); }
+  a { color: light-dark(#2563eb, #60a5fa); }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: .9em; background: light-dark(#f1f5f9, #1e293b); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+  pre { background: light-dark(#f8fafc, #1e293b); border: 1px solid light-dark(#e2e8f0, #334155); padding: 12px; border-radius: 8px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  .hero { background: linear-gradient(135deg, #11567F, #29B5E8); color: #fff; border-radius: 12px; padding: clamp(20px, 4vw, 36px); }
+  .hero h1 { color: #fff; margin: 0 0 8px; }
+  .hero p { margin: 4px 0; opacity: .95; }
+  .badge { display: inline-block; background: rgba(255,255,255,.2); border: 1px solid rgba(255,255,255,.5); border-radius: 999px; padding: 3px 12px; font-size: .85em; margin-top: 10px; }
+  .note { border-left: 4px solid #f59e0b; background: light-dark(#fffbeb, #3a2e0b); padding: 10px 14px; border-radius: 6px; margin: 16px 0; }
+  .info { border-left: 4px solid var(--accent); background: light-dark(#eff9fd, #0c2a3a); padding: 10px 14px; border-radius: 6px; margin: 16px 0; }
+  .ok { border-left: 4px solid #16a34a; background: light-dark(#f0fdf4, #0b2a17); padding: 10px 14px; border-radius: 6px; margin: 16px 0; }
+  .table-wrap { overflow-x: auto; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .93em; }
+  th, td { border: 1px solid light-dark(#d1d5db, #374151); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: light-dark(#f3f4f6, #1f2937); }
+  nav.toc { columns: 2 220px; font-size: .93em; margin: 20px 0; }
+  nav.toc a { display: block; padding: 2px 0; }
+  img, svg { max-width: 100%; height: auto; }
+  ol li, ul li { margin: 4px 0; }
+  .where { display: inline-block; font-size: .8em; font-weight: 600; border-radius: 999px; padding: 2px 10px; margin-right: 6px; }
+  .central { background: light-dark(#dbeafe, #1e3a5f); color: light-dark(#1e40af, #bfdbfe); }
+  .target  { background: light-dark(#fce7f3, #4a1d36); color: light-dark(#9d174d, #fbcfe8); }
+  .local   { background: light-dark(#e5e7eb, #374151); color: light-dark(#374151, #e5e7eb); }
+  .checklist li { list-style: none; margin-left: -1.2em; }
+  .checklist li::before { content: "\2610  "; }
+  footer { margin-top: 3em; font-size: .85em; color: light-dark(#64748b, #94a3b8); border-top: 1px solid light-dark(#e2e8f0, #334155); padding-top: 12px; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>84.51 Managed Accounts Admin</h1>
+  <p>Deployment guide: install the user lifecycle admin application in EIGHTY451 and connect your managed CPG accounts</p>
+  <span class="badge">Deployment guide &mdash; v1.2 &mdash; November 19, 2026</span>
+</div>
+
+<h2 id="how-to-use">How to use this guide</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Your goal</th><th>Start here</th><th>Time required</th></tr></thead>
+<tbody>
+<tr><td>Understand what gets installed</td><td><a href="#overview">1. What you are deploying</a></td><td>10 minutes</td></tr>
+<tr><td>Prepare access and decisions</td><td><a href="#prereqs">2. Prerequisites</a></td><td>30 minutes</td></tr>
+<tr><td>Install the central components</td><td><a href="#get-code">3</a> &rarr; <a href="#central">4</a> &rarr; <a href="#discovery">5</a></td><td>30&ndash;45 minutes</td></tr>
+<tr><td>Connect one managed account</td><td><a href="#onboard-account">6. Connect a managed account</a></td><td>20 minutes per account</td></tr>
+<tr><td>Deploy worker, app, and admins</td><td><a href="#worker">7</a> &rarr; <a href="#app">8</a> &rarr; <a href="#admins">9</a></td><td>45 minutes</td></tr>
+<tr><td>Prove it end to end on a pilot account</td><td><a href="#verify">10. Verify and pilot</a></td><td>2&ndash;3 hours</td></tr>
+<tr><td>Already running</td><td><a href="#operate">12. Day-2 operations</a>, <a href="#troubleshoot">14. Troubleshooting</a></td><td>As needed</td></tr>
+<tr><td>Let CSV imports create new roles</td><td><a href="#csv-roles">13. Creating roles from a CSV import</a></td><td>15 minutes</td></tr>
+</tbody></table></div>
+<div class="note"><strong>Important:</strong> Deploy against one non-production managed account first. No account can be changed until it passes a preflight and is explicitly enabled. Note that <code>sql/06</code> resumes the scheduled tasks when it runs (see <a href="#worker">section 7</a>).</div>
+
+<nav class="toc" aria-label="Contents">
+  <a href="#how-to-use">How to use this guide</a>
+  <a href="#overview">1. What you are deploying</a>
+  <a href="#prereqs">2. Prerequisites</a>
+  <a href="#get-code">3. Get the code</a>
+  <a href="#central">4. Central setup (EIGHTY451)</a>
+  <a href="#discovery">5. Discover organization accounts</a>
+  <a href="#onboard-account">6. Connect a managed account</a>
+  <a href="#worker">7. Deploy the worker and tasks</a>
+  <a href="#app">8. Deploy the Streamlit app</a>
+  <a href="#admins">9. Assign admin duties</a>
+  <a href="#verify">10. Verify and pilot</a>
+  <a href="#golive">11. Go live</a>
+  <a href="#operate">12. Day-2 operations</a>
+  <a href="#csv-roles">13. Creating roles from a CSV import</a>
+  <a href="#troubleshoot">14. Troubleshooting</a>
+  <a href="#rollback">15. Uninstall / rollback</a>
+</nav>
+
+<h2 id="overview">1. What you are deploying</h2>
+<p>A Streamlit in Snowflake application in your main account <code>EIGHTY451</code> (Azure East US 2) that lets EIGHTY451 account administrators onboard, offboard, and audit human users across all Snowflake accounts in your organization. Changes to managed accounts are made by a scheduled worker that calls each account&rsquo;s Snowflake SQL API using a dedicated key-pair service user.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Where</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>ACCT_ADMIN_DB</code> database</td><td>EIGHTY451</td><td>Account registry, role catalog, operation queue, inventory, audit history</td></tr>
+<tr><td>Worker procedures <code>WORKER.EXEC_&lt;ACCOUNT_ID&gt;</code></td><td>EIGHTY451</td><td>One per managed account, each bound to that account&rsquo;s key and network rule only</td></tr>
+<tr><td>Tasks</td><td>EIGHTY451</td><td>Dispatch approved work (5 min), reconcile drift (6 h), purge credential links (hourly)</td></tr>
+<tr><td>Streamlit app <code>APP.MANAGED_ACCOUNTS_ADMIN</code></td><td>EIGHTY451</td><td>Admin UI; available only to ACCOUNTADMIN users</td></tr>
+<tr><td>Service user <code>SVC_ACCT_ADMIN</code> + authentication policies</td><td>Each managed account</td><td>Key-pair identity for the SQL API; MFA policies for customer and internal admin users</td></tr>
+</tbody></table></div>
+<p>Legend used in this guide:
+  <span class="where central">EIGHTY451</span> run in your main account &nbsp;
+  <span class="where target">Managed account</span> run in each managed account &nbsp;
+  <span class="where local">Workstation</span> run on an administrator&rsquo;s machine</p>
+
+<h2 id="prereqs">2. Prerequisites</h2>
+<h3>Access</h3>
+<ul class="checklist">
+  <li>A user with <strong>ACCOUNTADMIN</strong> in EIGHTY451.</li>
+  <li><strong>ORGADMIN</strong> (or GLOBALORGADMIN) enabled in EIGHTY451 for organization account discovery.</li>
+  <li>ACCOUNTADMIN access to each managed account, or a delegate who can run the per-account bootstrap script.</li>
+  <li>At least two EIGHTY451 ACCOUNTADMIN users who will use the app (one to request, a different one to approve).</li>
+</ul>
+<h3>Tools</h3>
+<ul class="checklist">
+  <li><a href="https://docs.snowflake.com/en/developer-guide/snowflake-cli/index">Snowflake CLI</a> (<code>snow</code>) or SnowSQL, connected to EIGHTY451, for uploading files with <code>PUT</code>.</li>
+  <li><code>openssl</code> for generating key pairs.</li>
+  <li><code>git</code> to retrieve the code.</li>
+</ul>
+<h3>Decisions to make before you start</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Decision</th><th>Default</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>Pilot (sandbox) managed account</td><td>&mdash;</td><td>Deploy end to end against one non-production account first.</td></tr>
+<tr><td>Execution role on managed accounts</td><td><code>ACCOUNTADMIN</code></td><td>Optional least-privilege alternative <code>ACCT_USER_ADMIN</code> is created by the bootstrap. Internal ACCOUNTADMIN grants require <code>ACCOUNTADMIN</code>.</td></tr>
+<tr><td>Allowed roles per account</td><td>&mdash;</td><td>Roles that customer CSVs may assign. Privileged roles are always blocked. A CSV may also name a role that is not yet catalogued; it is created on approval (see <a href="#csv-roles">section 13</a>).</td></tr>
+<tr><td>Allow CSV imports to create roles</td><td>On (needs <code>EXEC_ROLE = ACCOUNTADMIN</code>)</td><td>New roles are empty, granted to SYSADMIN and approved by the regular batch approver. Accounts using <code>ACCT_USER_ADMIN</code> block these operations.</td></tr>
+<tr><td>Approved email domains per account</td><td>&mdash;</td><td>CSV rows outside these domains are rejected.</td></tr>
+<tr><td>Network path from EIGHTY451 to each account</td><td>Public HTTPS</td><td>If managed accounts use network policies or Private Link, confirm the allowed path before bootstrap.</td></tr>
+<tr><td>Secure channel for password / MFA links</td><td>&mdash;</td><td>Links are single use and expire after 12 hours.</td></tr>
+</tbody></table></div>
+
+<h2 id="get-code">3. Get the code</h2>
+<p><span class="where local">Workstation</span></p>
+<pre><code>git clone https://github.com/sfc-gh-jjordan/Admin_Managed_Accounts.git
+cd Admin_Managed_Accounts</code></pre>
+<div class="table-wrap"><table>
+<thead><tr><th>Path</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td><code>sql/01</code> &ndash; <code>sql/07</code></td><td>Setup scripts, run in numeric order</td></tr>
+<tr><td><code>sql/08_migrate_csv_role_creation.sql</code></td><td>Upgrade only: adds the columns for CSV role creation to an existing deployment</td></tr>
+<tr><td><code>python/worker/</code></td><td>SQL API client, fixed action templates, worker engine</td></tr>
+<tr><td><code>python/app/</code></td><td>Trusted command procedure used by the app</td></tr>
+<tr><td><code>streamlit/</code></td><td>Streamlit application source</td></tr>
+<tr><td><code>tests/</code></td><td>Local pytest suite for CSV validation and role creation</td></tr>
+</tbody></table></div>
+<p>All commands below are run from the repository root.</p>
+
+<h2 id="central">4. Central setup (EIGHTY451)</h2>
+<p><span class="where central">EIGHTY451</span> Run as ACCOUNTADMIN in a Snowsight worksheet or with the CLI.</p>
+<ol>
+  <li>Run <code>sql/01_central_setup.sql</code>. It first confirms it is running in EIGHTY451 / AZURE_EASTUS2 and stops otherwise. It creates the warehouse <code>ACCT_ADMIN_WH</code>, the application roles, the database <code>ACCT_ADMIN_DB</code> with schemas <code>CONTROL</code>, <code>APP</code>, <code>WORKER</code>, <code>NET</code>, <code>SECRETS</code>, and the code stages.</li>
+  <li>Run <code>sql/02_control_tables.sql</code> to create the registry, queue, inventory, audit tables, and views. Fresh installs include the <code>IMPORT_BATCHES.NEW_ROLES</code> and <code>OPERATIONS.DEPENDS_ON</code> columns used by CSV role creation, so <code>sql/08</code> is not needed.</li>
+</ol>
+<pre><code>snow sql -c &lt;eighty451_connection&gt; -f sql/01_central_setup.sql
+snow sql -c &lt;eighty451_connection&gt; -f sql/02_control_tables.sql</code></pre>
+<div class="ok"><strong>Check:</strong> <code>SHOW SCHEMAS IN DATABASE ACCT_ADMIN_DB;</code> returns the five schemas, and <code>SHOW TABLES IN SCHEMA ACCT_ADMIN_DB.CONTROL;</code> lists the control tables.</div>
+
+<h2 id="discovery">5. Discover organization accounts</h2>
+<p><span class="where central">EIGHTY451</span> Run <code>sql/03_org_account_discovery.sql</code> as a user holding both ORGADMIN and ACCOUNTADMIN.</p>
+<p>The script reads <code>SHOW ACCOUNTS LIKE 'EIGHTY451%_EXT'</code>, excludes EIGHTY451 itself, and seeds <code>CONTROL.CUSTOMER_ACCOUNTS</code> with each account&rsquo;s locator, region, SQL API host, and JWT account identifier. New accounts are added <strong>disabled</strong> with status <code>NOT_BOOTSTRAPPED</code>; nothing can be executed against them yet.</p>
+<div class="note"><strong>Before running:</strong> edit the <code>SHOW ACCOUNTS LIKE</code> pattern in <code>sql/03</code> so it matches the managed accounts you want to register. Only accounts returned by that statement are seeded.</div>
+<p>The derived <code>SQL_API_HOST</code> is lowercase with underscores replaced by hyphens (<code>&lt;org&gt;-&lt;account&gt;.snowflakecomputing.com</code>). <code>JWT_ACCOUNT_IDENTIFIER</code> is <code>&lt;ORG&gt;-&lt;ACCOUNT&gt;</code> in uppercase with underscores kept.</p>
+<div class="info">Re-run this script whenever accounts are added to the organization. It updates descriptive fields but never overwrites an account&rsquo;s verified host or identity.</div>
+<p>Review the output and, if needed, correct <code>DISPLAY_NAME</code> before continuing. The <code>ACCOUNT_ID</code> column is the short key used throughout the remaining steps.</p>
+
+<h2 id="onboard-account">6. Connect a managed account</h2>
+<p>Repeat this section for each managed account, starting with your pilot account. Each account gets its own key pair.</p>
+
+<h3>6.1 Generate a key pair</h3>
+<p><span class="where local">Workstation</span></p>
+<p>Use the <code>ACCOUNT_ID</code> of an account with <code>BOOTSTRAP_STATUS = 'NOT_BOOTSTRAPPED'</code> in <code>CONTROL.CUSTOMER_ACCOUNTS</code>.</p>
+<pre><code>ACCT=CPG_ACME   # the ACCOUNT_ID from the registry
+openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out sqlapi_${ACCT}.p8 -nocrypt
+openssl rsa -in sqlapi_${ACCT}.p8 -pubout -out sqlapi_${ACCT}.pub</code></pre>
+<div class="note">Treat the <code>.p8</code> file as a credential. Store it only in the Snowflake secret created in step 6.3, then delete it from the workstation. Never commit it to source control.</div>
+
+<h3>6.2 Bootstrap the managed account</h3>
+<p><span class="where target">Managed account</span> Open <code>sql/04_target_account_bootstrap.sql</code>, paste the body of <code>sqlapi_${ACCT}.pub</code> (without the BEGIN/END lines) into the <code>RSA_PUBLIC_KEY</code> placeholder, and run it as ACCOUNTADMIN <strong>in the managed account</strong>.</p>
+<p>The script creates:</p>
+<ul>
+  <li>Database <code>ADMIN_POLICIES</code> with authentication policies <code>CPG_HUMAN_MFA_V1</code> (customer users) and <code>INTERNAL_ADMIN_MFA_V1</code> (84.51 admins), both requiring password plus MFA, and <code>SQLAPI_SERVICE_V1</code> (key pair only).</li>
+  <li>Service user <code>SVC_ACCT_ADMIN</code> (TYPE = SERVICE) with ACCOUNTADMIN and the optional <code>ACCT_USER_ADMIN</code> role.</li>
+</ul>
+<p>The script runs <code>SHOW AUTHENTICATION POLICIES ON ACCOUNT;</code> first so you can review any existing account-level policy. Never weaken a stronger existing policy. The app attaches its policies to managed users only and does not change account-level settings.</p>
+<h4>Network policy for the service user (required)</h4>
+<p>The script now creates network rule <code>ADMIN_POLICIES.POLICIES.CENTRAL_EGRESS</code> and network policy <code>SQLAPI_SERVICE_NP</code>, and attaches the policy to <code>SVC_ACCT_ADMIN</code>. Replace the <code>&lt;&lt;central egress CIDRs&gt;&gt;</code> placeholder before running, or the script fails.</p>
+<p><span class="where central">EIGHTY451</span> Get the egress ranges from the central account:</p>
+<pre><code>SELECT value:"ipv4_prefix"::VARCHAR  AS ip_cidr_range,
+       value:"effective"::TIMESTAMP  AS effective_date,
+       value:"expires"::TIMESTAMP    AS expiration_date
+FROM TABLE(FLATTEN(INPUT => PARSE_JSON(SYSTEM$GET_SNOWFLAKE_EGRESS_IP_RANGES())));</code></pre>
+<p><span class="where target">Managed account</span> Put the returned <code>ip_cidr_range</code> values (quoted, comma-separated) into <code>VALUE_LIST</code>. Egress ranges have expiration dates, so review them periodically.</p>
+<div class="note">The bootstrap does not create shared customer roles yet (section 6 of the script is marked TODO). Either create them here and add them to the role catalog, or let a CSV import request them: roles with no catalog entry are created on approval (empty, granted to SYSADMIN, catalogued as default-eligible). This needs <code>EXEC_ROLE = ACCOUNTADMIN</code>.</div>
+<p>From the script output, record:</p>
+<ul>
+  <li><code>RSA_PUBLIC_KEY_FP</code> from <code>DESC USER SVC_ACCT_ADMIN</code> (starts with <code>SHA256:</code>).</li>
+  <li>The account locator returned by <code>CURRENT_ACCOUNT()</code>; it must match <code>EXPECTED_ACCOUNT_LOCATOR</code> in the registry.</li>
+</ul>
+
+<h3>6.3 Store the key and register connectivity</h3>
+<p><span class="where central">EIGHTY451</span> In a worksheet, using role <code>ACCT_ADMIN_BOOTSTRAP</code>:</p>
+<pre><code>USE ROLE ACCT_ADMIN_BOOTSTRAP;
+
+CREATE OR REPLACE SECRET ACCT_ADMIN_DB.SECRETS.SQLAPI_KEY_CPG_ACME
+  TYPE = GENERIC_STRING
+  SECRET_STRING = '-----BEGIN PRIVATE KEY-----
+...contents of sqlapi_CPG_ACME.p8...
+-----END PRIVATE KEY-----';
+
+UPDATE ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS
+   SET PUBLIC_KEY_FP = 'SHA256:...from step 6.2...',
+       SECRET_VERSION = 1,
+       REGISTRY_VERSION = REGISTRY_VERSION + 1,
+       UPDATED_AT = CURRENT_TIMESTAMP()
+ WHERE ACCOUNT_ID = 'CPG_ACME';</code></pre>
+<p>Replace <code>CPG_ACME</code> in the secret name and the <code>WHERE</code> clause with the account&rsquo;s <code>ACCOUNT_ID</code>.</p>
+<p><span class="where local">Workstation</span> Upload the worker code as <code>ACCT_ADMIN_WORKER</code>. The generated worker procedure imports <code>sqlapi_client.py</code> from the stage, so this must be done <strong>before</strong> registering connectivity:</p>
+<pre><code>snow sql -c &lt;eighty451_connection&gt; --role ACCT_ADMIN_WORKER -q "
+PUT file://python/worker/sqlapi_client.py @ACCT_ADMIN_DB.WORKER.CODE_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+PUT file://python/worker/actions.py       @ACCT_ADMIN_DB.WORKER.CODE_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+PUT file://python/worker/worker.py        @ACCT_ADMIN_DB.WORKER.CODE_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+ALTER STAGE ACCT_ADMIN_DB.WORKER.CODE_STAGE REFRESH;"</code></pre>
+<div class="info"><strong>Alternative:</strong> instead of <code>snow sql</code>, you can upload the three files in the Snowsight UI. Go to <strong>Catalog &rarr; Database Explorer</strong>, open <code>ACCT_ADMIN_DB</code> &rarr; <code>WORKER</code> &rarr; <strong>Stages</strong> &rarr; <code>CODE_STAGE</code>, then choose <strong>+ Files</strong> and select <code>sqlapi_client.py</code>, <code>actions.py</code> and <code>worker.py</code>. Make sure the files are not compressed and are uploaded to the root of the stage.</div>
+<p><span class="where central">EIGHTY451</span> Run <code>sql/05_account_connectivity.sql</code>. It creates the generator procedure and then calls it. <strong>Edit the <code>'CPG_ACME'</code> argument in STEP C to your account&rsquo;s <code>ACCOUNT_ID</code> before running.</strong> For later accounts, just call the procedure:</p>
+<pre><code>CALL ACCT_ADMIN_DB.WORKER.REGISTER_ACCOUNT_CONNECTIVITY('CPG_ACME');</code></pre>
+<p>This creates a network rule that allows only that account&rsquo;s SQL API host, an external access integration bound to that rule and secret, and the worker procedure <code>WORKER.EXEC_CPG_ACME</code>. The account status becomes <code>CONNECTIVITY_READY</code>.</p>
+<div class="ok"><strong>Check:</strong>
+<pre><code>SHOW PROCEDURES LIKE 'EXEC_%' IN SCHEMA ACCT_ADMIN_DB.WORKER;
+SHOW NETWORK RULES IN SCHEMA ACCT_ADMIN_DB.NET;
+SHOW EXTERNAL ACCESS INTEGRATIONS LIKE 'ACCT_ADMIN_EAI_%';
+
+SELECT ACCOUNT_ID, ACCOUNT_LOCATOR, REGION, SQL_API_HOST, JWT_ACCOUNT_IDENTIFIER, BOOTSTRAP_STATUS, IS_ENABLED
+FROM ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS
+WHERE ACCOUNT_ID = 'CPG_ACME';   -- expect CONNECTIVITY_READY</code></pre></div>
+<div class="note">If the call fails with <code>sqlapi_client.py</code> not found, the worker code has not been uploaded to <code>CODE_STAGE</code>. Run the <code>PUT</code> commands above and retry.</div>
+
+<h2 id="worker">7. Deploy the worker and tasks</h2>
+<p><span class="where central">EIGHTY451</span> The worker code was uploaded in section 6.3. Run <code>sql/06_worker_dispatch_and_tasks.sql</code> as <code>ACCT_ADMIN_WORKER</code>. It creates:</p>
+<ul>
+  <li><code>WORKER.DISPATCH</code> &ndash; processes queued operations or reconciliation across enabled accounts.</li>
+  <li><code>WORKER.RUN_ACCOUNT</code> &ndash; on-demand run for a single account (used by the app).</li>
+  <li>Tasks <code>DISPATCH_TASK</code>, <code>RECONCILE_TASK</code>, <code>PURGE_HANDOFF_TASK</code>. They are created suspended, and the script then <strong>resumes</strong> them.</li>
+</ul>
+<p>The end of the script also runs the preflight and enable steps below for one account. <strong>Edit <code>'CPG_ACME'</code> in those statements before running.</strong></p>
+<div class="note">Because the tasks are resumed here, reconcile runs against every enabled account from this point on. Dispatch only runs operations that have been approved. To keep tasks paused until the pilot passes, comment out the three <code>ALTER TASK ... RESUME</code> lines and resume them in <a href="#golive">section 11</a>.</div>
+
+<h3>7.1 Preflight each connected account</h3>
+<pre><code>USE ROLE ACCT_ADMIN_WORKER;
+CALL ACCT_ADMIN_DB.WORKER.RUN_ACCOUNT('CPG_ACME', 'PREFLIGHT');</code></pre>
+<p>The preflight makes no changes. It signs in to the managed account and confirms the account locator, service user, and execution role match the registry.</p>
+<div class="ok"><strong>Expected:</strong> the result contains <code>"ok": true</code> and <code>CUSTOMER_ACCOUNTS.BOOTSTRAP_STATUS</code> becomes <code>VERIFIED</code>. If not, see <a href="#troubleshoot">Troubleshooting</a>.</div>
+<h3>7.2 Enable the account</h3>
+<p>Only after a successful preflight:</p>
+<pre><code>SELECT ACCOUNT_ID, BOOTSTRAP_STATUS, IS_ENABLED
+FROM ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS
+WHERE ACCOUNT_ID = 'CPG_ACME';   -- expect VERIFIED
+
+UPDATE ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS SET IS_ENABLED = TRUE WHERE ACCOUNT_ID = 'CPG_ACME';</code></pre>
+<p>You can also enable the account from the <strong>Account registry</strong> page in the app (section 10.1).</p>
+
+<h2 id="app">8. Deploy the Streamlit app</h2>
+<p><span class="where local">Workstation</span> Upload the command module and app source as <code>ACCT_ADMIN_OWNER</code>:</p>
+<pre><code>snow sql -c &lt;eighty451_connection&gt; --role ACCT_ADMIN_OWNER -q "
+PUT file://python/app/app_commands.py  @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE/cmd           AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+PUT file://streamlit/streamlit_app.py  @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE/app           AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+PUT file://streamlit/environment.yml   @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE/app           AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+PUT file://streamlit/lib/*.py          @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE/app/lib       AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+PUT file://streamlit/app_pages/*.py    @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE/app/app_pages AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+ALTER STAGE ACCT_ADMIN_DB.APP.STREAMLIT_STAGE REFRESH;"</code></pre>
+<p>Verify the upload with <code>LS @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE;</code>.</p>
+<div class="info"><strong>Alternative:</strong> instead of <code>snow sql</code>, you can upload the files in the Snowsight UI. Go to <strong>Catalog &rarr; Database Explorer</strong>, open <code>ACCT_ADMIN_DB</code> &rarr; <code>APP</code> &rarr; <strong>Stages</strong> &rarr; <code>STREAMLIT_STAGE</code>, then choose <strong>+ Files</strong> and upload each file to the matching path shown above (<code>cmd</code>, <code>app</code>, <code>app/lib</code> and <code>app/app_pages</code>); enter the path in the <strong>Path</strong> field when uploading. Make sure the files are not compressed.</div>
+<p><code>streamlit/environment.yml</code> pins these versions:</p>
+<pre><code>- streamlit=1.52.2
+- pandas=2.3.3
+- snowflake-snowpark-python=1.56.0</code></pre>
+<p>Before uploading, confirm these versions are available in your account; if not, change the pins. The Streamlit version must support <code>st.navigation</code>, <code>st.segmented_control</code>, <code>st.pills</code>, and horizontal containers.</p>
+<p><span class="where central">EIGHTY451</span> Query <code>INFORMATION_SCHEMA.PACKAGES</code> to see the versions the Snowflake Anaconda channel offers in your account. The commented block at the top of <code>sql/07</code> contains this query and a query that prints the <code>environment.yml</code> currently on the stage.</p>
+<pre><code>SELECT package_name,
+       MAX_BY(version, TRY_TO_NUMBER(SPLIT_PART(version,'.',1))*1e6
+                     + TRY_TO_NUMBER(SPLIT_PART(version,'.',2))*1e3
+                     + TRY_TO_NUMBER(SPLIT_PART(version,'.',3))) AS latest_version,
+       ARRAY_AGG(DISTINCT version) WITHIN GROUP (ORDER BY version DESC) AS all_versions
+FROM ACCT_ADMIN_DB.INFORMATION_SCHEMA.PACKAGES
+WHERE language = 'python'
+  AND package_name IN ('streamlit', 'pandas', 'snowflake-snowpark-python')
+GROUP BY package_name;</code></pre>
+<p><span class="where central">EIGHTY451</span> Run <code>sql/07_app_commands_and_streamlit.sql</code> as <code>ACCT_ADMIN_OWNER</code>, then run its final grant as ACCOUNTADMIN if the owner role cannot grant it. This creates:</p>
+<ul>
+  <li><code>APP.COMMAND</code> &ndash; the only path the app uses to change anything. It confirms the caller holds ACCOUNTADMIN on every call.</li>
+  <li>Streamlit app <code>APP.MANAGED_ACCOUNTS_ADMIN</code> on the warehouse runtime (<code>RUNTIME_NAME = 'SYSTEM$WAREHOUSE_RUNTIME'</code>), granted to the <strong>ACCOUNTADMIN</strong> role only.</li>
+</ul>
+<div class="info">The runtime is set explicitly because, since BCR bundle 2026_06, leaving out <code>RUNTIME_NAME</code> defaults to the container runtime, which ignores <code>environment.yml</code>.</div>
+
+<h2 id="admins">9. Assign admin duties</h2>
+<p>Every app user must hold ACCOUNTADMIN in EIGHTY451. Within that group, duties are assigned in <code>CONTROL.ADMIN_AUTHORIZATIONS</code> so that requesting and approving are performed by different people.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Permission</th><th>Allows</th></tr></thead>
+<tbody>
+<tr><td><code>CAN_VIEW</code></td><td>Overview, inventory, operations, audit</td></tr>
+<tr><td><code>CAN_OPERATE</code></td><td>Upload CSVs, request disable/re-enable, password/MFA links, internal admin requests</td></tr>
+<tr><td><code>CAN_APPROVE</code></td><td>Approve customer operations (including <code>CREATE_ROLE</code> from CSV imports), retry/cancel, pause accounts, view secure handoff links</td></tr>
+<tr><td><code>CAN_PRIV_APPROVE</code></td><td>Approve internal ACCOUNTADMIN grants; edit registry and role catalog</td></tr>
+</tbody></table></div>
+<pre><code>-- List eligible users
+SHOW GRANTS OF ROLE ACCOUNTADMIN;
+
+INSERT INTO ACCT_ADMIN_DB.CONTROL.ADMIN_AUTHORIZATIONS
+  (ADMIN_USER, ACCOUNT_ID, CAN_VIEW, CAN_OPERATE, CAN_APPROVE, CAN_PRIV_APPROVE)
+VALUES ('ADMIN_ONE', '*', TRUE, TRUE, FALSE, FALSE),
+       ('ADMIN_TWO', '*', TRUE, TRUE, TRUE,  TRUE);</code></pre>
+<p>Use <code>'*'</code> for all accounts or an <code>ACCOUNT_ID</code> to scope a permission. Self-approval is always refused. Check the assignments with <code>SELECT * FROM ACCT_ADMIN_DB.CONTROL.ADMIN_AUTHORIZATIONS;</code>.</p>
+<p>For the internal ACCOUNTADMIN workflow, add eligible 84.51 employees to <code>CONTROL.INTERNAL_ADMIN_ROSTER</code> with <code>ELIGIBILITY_STATUS = 'ELIGIBLE'</code> and <code>EMAIL_VERIFIED = TRUE</code> after review.</p>
+<div class="info">ACCOUNTADMIN membership is checked against <code>SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS</code>, which has some latency. A newly granted administrator may need to wait before the app recognizes them. Only direct grants of ACCOUNTADMIN to the user are recognized.</div>
+
+<h2 id="verify">10. Verify and pilot</h2>
+<p>Open Snowsight in EIGHTY451, switch to the <strong>ACCOUNTADMIN</strong> role, and open <em>Projects &raquo; Streamlit &raquo; MANAGED_ACCOUNTS_ADMIN</em>.</p>
+<h3>10.1 Configure the pilot account</h3>
+<ol>
+  <li><strong>Account registry</strong>: select the pilot account, set approved email domains and protected users, choose the execution role, and save.</li>
+  <li>Add allowed roles to the <strong>role catalog</strong> (the roles must already exist in the managed account), or let a CSV import create new ones. The operator confirms the list of new roles and the batch approver approves each <code>CREATE_ROLE</code> operation.</li>
+  <li>Turn <strong>Enabled</strong> on if you did not already enable it in section 7.2 (only possible after a successful preflight).</li>
+  <li>Click <strong>Reconcile now</strong> to load the current user population as unmanaged inventory.</li>
+</ol>
+<h3>10.2 Run the pilot scenarios</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Scenario</th><th>Expected result</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Upload a CSV with one ONBOARD user (two roles) as admin A; approve as admin B; click <em>Execute queue now</em></td><td>User created disabled, policy attached, roles granted, then enabled; inventory shows observed roles; MFA evidence <code>REQUIRED_NOT_YET_OBSERVED</code></td></tr>
+<tr><td>2</td><td>Admin A tries to approve their own request</td><td>Refused: self-approval not allowed</td></tr>
+<tr><td>3</td><td>CSV row with <code>ACCOUNTADMIN</code> role, unapproved email domain, or SQL text</td><td>Row rejected; batch cannot be submitted until excluded</td></tr>
+<tr><td>4</td><td>Request a password setup link for the new user; approve; execute</td><td>Link appears under <em>Internal admin access &raquo; Secure handoff</em>; after <em>Mark delivered</em> it is erased</td></tr>
+<tr><td>5</td><td>User signs in, sets password, enrolls MFA; run reconcile</td><td>MFA evidence becomes <code>ENROLLED</code></td></tr>
+<tr><td>6</td><td>Disable the user from inventory; approve; execute</td><td>Remote user disabled and verified; desired and observed state both disabled</td></tr>
+<tr><td>7</td><td>Internal admin: request access for a roster employee; approve with a privileged approver; execute</td><td>User provisioned with a low-privilege default role; ACCOUNTADMIN grant blocked as <code>AWAITING_MFA</code> until MFA is enrolled, then granted on retry</td></tr>
+<tr><td>8</td><td>Revoke ACCOUNTADMIN for that admin</td><td>Revoked and verified; refused if fewer than two human ACCOUNTADMIN users would remain (unless emergency override)</td></tr>
+<tr><td>9</td><td>Pause the account, queue an operation</td><td>Operation stays queued; worker skips paused accounts</td></tr>
+<tr><td>10</td><td>Upload a CSV that onboards a user with a role not in the catalog (for example <code>DEMO_ANALYST_ROLE</code> as both role and default role); confirm the <em>Roles to be created</em> list; submit as admin A; approve both operations as admin B; execute</td><td><code>CREATE_ROLE</code> succeeds first: the role exists in the managed account, is granted to SYSADMIN, and appears in the role catalog as default-eligible. The onboarding then succeeds with that role as default.</td></tr>
+<tr><td>11</td><td>Repeat scenario 10 with a new role name, but reject the <code>CREATE_ROLE</code> operation</td><td>The dependent onboarding operation is cancelled with <code>dependency ... rejected</code>; no role or user is created</td></tr>
+</tbody></table></div>
+<p>Review <strong>Operations and health</strong> for step-level results and the audit trail after each scenario.</p>
+
+<h2 id="golive">11. Go live</h2>
+<p><span class="where central">EIGHTY451</span> <code>sql/06</code> resumes the tasks by default. If you commented out those lines for the pilot, resume the tasks as <code>ACCT_ADMIN_WORKER</code> after the pilot passes:</p>
+<pre><code>ALTER TASK ACCT_ADMIN_DB.WORKER.PURGE_HANDOFF_TASK RESUME;
+ALTER TASK ACCT_ADMIN_DB.WORKER.RECONCILE_TASK     RESUME;
+ALTER TASK ACCT_ADMIN_DB.WORKER.DISPATCH_TASK      RESUME;</code></pre>
+<p>Roll out remaining accounts in small groups: repeat section 6, preflight, configure in the app, enable, reconcile.</p>
+<h3>Go-live checklist</h3>
+<ul class="checklist">
+  <li>Pilot scenarios 1&ndash;11 passed.</li>
+  <li>At least two app users with approver permission.</li>
+  <li>Each enabled account shows <code>BOOTSTRAP_STATUS = VERIFIED</code>.</li>
+  <li>Role catalog and email domains set for each enabled account.</li>
+  <li>All local <code>.p8</code> private key files deleted.</li>
+  <li>Secure link delivery channel agreed with customers.</li>
+  <li>Tasks resumed and the first dispatch run shows in task history.</li>
+</ul>
+
+<h2 id="operate">12. Day-2 operations</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Task</th><th>How</th></tr></thead>
+<tbody>
+<tr><td>Add a new organization account</td><td>Re-run <code>sql/03</code>, then section 6 for that account.</td></tr>
+<tr><td>Rotate an account&rsquo;s key</td><td>Generate a new pair; in the managed account <code>ALTER USER SVC_ACCT_ADMIN SET RSA_PUBLIC_KEY_2 = '...'</code>; replace the secret in EIGHTY451; update <code>PUBLIC_KEY_FP</code> and increment <code>SECRET_VERSION</code>; preflight; then unset the old key.</td></tr>
+<tr><td>Update worker or app code</td><td>Re-run the <code>PUT</code> commands from sections 6.3 and 8. Procedures pick up new code on the next call.</td></tr>
+<tr><td>Upgrade to CSV role creation</td><td>See <a href="#csv-roles-upgrade">13.3</a>: run <code>sql/08</code>, re-upload worker and app code, re-run <code>sql/07</code>.</td></tr>
+<tr><td>Grant data access to a role created from CSV</td><td>New roles have no privileges. In the managed account, grant the needed warehouse, database and schema privileges to the role, for example <code>GRANT USAGE ON WAREHOUSE ... TO ROLE DEMO_ANALYST_ROLE;</code>.</td></tr>
+<tr><td>Review roles created from CSV</td><td><code>SELECT ACCOUNT_ID, ROLE_NAME, REVIEW_NOTES, UPDATED_AT FROM ACCT_ADMIN_DB.CONTROL.ROLE_CATALOG WHERE REVIEW_NOTES LIKE 'auto-created%';</code></td></tr>
+<tr><td>Account paused by circuit breaker</td><td>Five consecutive failures pause an account. Fix the cause, preflight, then <em>Resume account</em> in the registry page.</td></tr>
+<tr><td>Review drift</td><td>Inventory page &raquo; Issues &raquo; Drift. Reconciliation reports drift; it never repairs or revokes automatically.</td></tr>
+<tr><td>Expired internal admin access</td><td>Reconciliation marks it <code>REVOKE_PENDING</code>; request and approve the revocation in the app.</td></tr>
+<tr><td>Monitor tasks</td><td><code>SELECT * FROM TABLE(INFORMATION_SCHEMA.TASK_HISTORY()) WHERE NAME LIKE '%_TASK' ORDER BY SCHEDULED_TIME DESC;</code></td></tr>
+</tbody></table></div>
+
+<h2 id="csv-roles">13. Creating roles from a CSV import</h2>
+<p>A CSV row may name a <code>role_name</code> or <code>default_role</code> that has no entry in the account&rsquo;s role catalog. Instead of rejecting the row, the app requests the role&rsquo;s creation in the managed account as part of the same batch.</p>
+
+<h3>13.1 How it works</h3>
+<ol>
+  <li><strong>Import and review.</strong> The row is valid and its findings show <code>role_name: &lt;ROLE&gt; will be created (new role)</code>. The page lists every new role under <strong>Roles to be created</strong>. The operator must tick the confirmation before <strong>Submit for approval</strong> is enabled.</li>
+  <li><strong>Submit.</strong> <code>APP.COMMAND</code> re-checks every role on the server, then creates one <code>CREATE_ROLE</code> operation per new role, plus the usual user operations. Each user operation records the role operations it needs in <code>OPERATIONS.DEPENDS_ON</code>.</li>
+  <li><strong>Approve.</strong> A user with <code>CAN_APPROVE</code> (not the requester) approves the <code>CREATE_ROLE</code> operations along with the user operations on the <strong>Approvals</strong> page. Rejecting a <code>CREATE_ROLE</code> operation also cancels the user operations that depend on it.</li>
+  <li><strong>Execute.</strong> The worker runs <code>CREATE_ROLE</code> first. It creates the role with no privileges, grants it to SYSADMIN, reads it back, and adds it to the role catalog as active, <code>STANDARD</code> and default-eligible, with review notes naming the batch, requester and approver. User operations wait in <code>QUEUED</code> until their roles exist, then grant them as usual.</li>
+</ol>
+<p>Statements the worker runs in the managed account (as <code>ACCOUNTADMIN</code>):</p>
+<pre><code>SHOW ROLES LIKE 'DEMO\\_ANALYST\\_ROLE';
+CREATE ROLE IF NOT EXISTS "DEMO_ANALYST_ROLE" COMMENT = 'managed by acct-admin op 1a2b3c4d';
+GRANT ROLE "DEMO_ANALYST_ROLE" TO ROLE "SYSADMIN";</code></pre>
+
+<h3>13.2 Rules and safeguards</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Rule</th><th>Behavior</th></tr></thead>
+<tbody>
+<tr><td>Execution role</td><td>The account&rsquo;s <code>EXEC_ROLE</code> must be <code>ACCOUNTADMIN</code>; otherwise the <code>CREATE_ROLE</code> operation is <code>BLOCKED</code> and its user operations are blocked too.</td></tr>
+<tr><td>Never created</td><td>Roles in <code>BLOCKED_ROLES</code>, Snowflake system roles (ACCOUNTADMIN, SECURITYADMIN, USERADMIN, SYSADMIN, ORGADMIN, GLOBALORGADMIN, PUBLIC), and names that do not match <code>^[A-Z][A-Z0-9_]{0,254}$</code>.</td></tr>
+<tr><td>Disabled catalog entries</td><td>A role that is inactive or <code>BLOCKED</code> in the catalog is rejected; a CSV never re-enables it.</td></tr>
+<tr><td>Batch limit</td><td>At most 10 new roles per batch; extra rows are rejected.</td></tr>
+<tr><td>Privileges</td><td>New roles are empty. Grant data access separately (see <a href="#operate">Day-2 operations</a>).</td></tr>
+<tr><td>Role already exists on the target</td><td>It is added to the catalog (noted as pre-existing) without changing its hierarchy or grants.</td></tr>
+<tr><td>Catalog version</td><td>Adding the role bumps the account&rsquo;s catalog version. Pending operations in the same batch stay valid; pending approvals from other batches become stale, as with any catalog edit.</td></tr>
+<tr><td>Catalog changed after upload</td><td>Submit is refused (<code>role catalog changed since validation; re-upload</code>).</td></tr>
+</tbody></table></div>
+<div class="note"><strong>Check role names carefully.</strong> A typo in <code>role_name</code> now creates a new role instead of failing validation. The <em>Roles to be created</em> list and the approver&rsquo;s review are the safeguards.</div>
+
+<h3 id="csv-roles-upgrade">13.3 Upgrade an existing deployment</h3>
+<p>Fresh installs already include this feature. For a deployment installed before it:</p>
+<ol>
+  <li><span class="where central">EIGHTY451</span> Run the migration as ACCOUNTADMIN. It is idempotent.
+<pre><code>snow sql -c &lt;eighty451_connection&gt; -f sql/08_migrate_csv_role_creation.sql</code></pre>
+  It adds <code>IMPORT_BATCHES.NEW_ROLES</code> and <code>OPERATIONS.DEPENDS_ON</code>.</li>
+  <li><span class="where local">Workstation</span> Re-upload the worker code (section 6.3 <code>PUT</code> commands) and the app code (section 8 <code>PUT</code> commands).</li>
+  <li><span class="where central">EIGHTY451</span> Re-run <code>sql/07_app_commands_and_streamlit.sql</code> as <code>ACCT_ADMIN_OWNER</code> so <code>APP.COMMAND</code> loads the new <code>app_commands.py</code>.</li>
+  <li>Run pilot scenarios 10 and 11 (<a href="#verify">section 10.2</a>) on a sandbox account.</li>
+</ol>
+<div class="ok"><strong>Check:</strong>
+<pre><code>SHOW COLUMNS LIKE 'NEW_ROLES'  IN TABLE ACCT_ADMIN_DB.CONTROL.IMPORT_BATCHES;
+SHOW COLUMNS LIKE 'DEPENDS_ON' IN TABLE ACCT_ADMIN_DB.CONTROL.OPERATIONS;</code></pre></div>
+
+<h3>13.4 Test locally</h3>
+<p><span class="where local">Workstation</span> The repository includes a pytest suite that covers validation, the server-side role checks, the SQL templates and the worker handler, without connecting to Snowflake:</p>
+<pre><code>python -m pip install pytest pandas pyjwt cryptography requests
+python -m pytest tests -q</code></pre>
+
+<h2 id="troubleshoot">14. Troubleshooting</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Symptom</th><th>Likely cause</th><th>Resolution</th></tr></thead>
+<tbody>
+<tr><td>Preflight returns HTTP 401 / JWT invalid</td><td>Public key or fingerprint mismatch, or wrong JWT account identifier</td><td>Compare <code>DESC USER SVC_ACCT_ADMIN</code> fingerprint with <code>PUBLIC_KEY_FP</code>; confirm <code>JWT_ACCOUNT_IDENTIFIER</code> is <code>ORG-ACCOUNT</code> in uppercase.</td></tr>
+<tr><td>&ldquo;Private key fingerprint does not match registry&rdquo;</td><td>Secret holds a different key than the one registered</td><td>Recreate the secret with the correct <code>.p8</code> or update <code>PUBLIC_KEY_FP</code>.</td></tr>
+<tr><td>Preflight identity mismatch</td><td>Host points to a different account, or execution role not granted</td><td>Verify <code>SQL_API_HOST</code> and <code>EXPECTED_ACCOUNT_LOCATOR</code>; grant the execution role to <code>SVC_ACCT_ADMIN</code>.</td></tr>
+<tr><td>Connection timeout / network error</td><td>Managed account network policy blocks EIGHTY451, or Private Link-only account</td><td>Update the managed account network policy, or establish the required private connectivity.</td></tr>
+<tr><td>Worker procedure fails with module not found</td><td>Code not uploaded or uploaded compressed</td><td>Re-run the section 6.3 <code>PUT</code> commands with <code>AUTO_COMPRESS=FALSE</code>.</td></tr>
+<tr><td>Preflight times out or is refused after bootstrap</td><td><code>SQLAPI_SERVICE_NP</code> CIDRs don&rsquo;t include the current EIGHTY451 egress ranges</td><td>Re-run the egress range query in section 6.2 and update <code>ADMIN_POLICIES.POLICIES.CENTRAL_EGRESS</code> in the managed account.</td></tr>
+<tr><td>App ignores pinned package versions</td><td>Streamlit created on the container runtime</td><td>Recreate it with <code>RUNTIME_NAME = 'SYSTEM$WAREHOUSE_RUNTIME'</code> as in <code>sql/07</code>.</td></tr>
+<tr><td>App shows &ldquo;does not hold ACCOUNTADMIN&rdquo;</td><td>Grant missing or not yet visible in ACCOUNT_USAGE</td><td>Confirm with <code>SHOW GRANTS TO USER</code>; wait for ACCOUNT_USAGE latency.</td></tr>
+<tr><td>App shows &ldquo;no duties assigned&rdquo;</td><td>No row in <code>ADMIN_AUTHORIZATIONS</code></td><td>Add the user as in section 9.</td></tr>
+<tr><td>Operation <code>BLOCKED: stale approval</code></td><td>Registry or role catalog changed after approval</td><td>Re-submit the request so it is approved against the current settings.</td></tr>
+<tr><td>Onboarding <code>BLOCKED</code>: user exists and is not app-managed</td><td>A user with that name already exists in the managed account</td><td>Confirm the identity with the customer; adoption requires an explicitly approved request.</td></tr>
+<tr><td>ACCOUNTADMIN grant stays <code>AWAITING_MFA</code></td><td>Admin has not enrolled MFA</td><td>Have the admin enroll, then retry the blocked operation from <em>Operations and health</em>.</td></tr>
+<tr><td>CSV row: <code>role_name: not in this account's role catalog</code></td><td>The role name does not match the allowed pattern, or role creation is not allowed for that row</td><td>Use uppercase letters, digits and underscores, starting with a letter.</td></tr>
+<tr><td>CSV row: <code>role_name: disabled or blocked in this account's role catalog</code></td><td>The role has a catalog entry that is inactive or <code>BLOCKED</code></td><td>A privileged approver must re-activate it in the role catalog, or use a different role.</td></tr>
+<tr><td>CSV row: <code>more than 10 new roles in one batch</code></td><td>Batch limit exceeded</td><td>Split the CSV, or pre-create the roles and add them to the catalog.</td></tr>
+<tr><td>Submit refused: <code>role catalog changed since validation; re-upload</code></td><td>The catalog was edited (or another batch created a role) after upload</td><td>Upload the CSV again.</td></tr>
+<tr><td>Submit refused: <code>role ... already has a catalog entry</code></td><td>The role was added to the catalog between upload and submit</td><td>Upload the CSV again; the role is no longer new.</td></tr>
+<tr><td><code>CREATE_ROLE</code> <code>BLOCKED</code>: requires ACCOUNTADMIN execution role</td><td>The account&rsquo;s <code>EXEC_ROLE</code> is <code>ACCT_USER_ADMIN</code></td><td>Set <code>EXEC_ROLE</code> to <code>ACCOUNTADMIN</code> for the account, or pre-create the role in the managed account and add it to the catalog.</td></tr>
+<tr><td>User operation <code>BLOCKED: dependency failed or was rejected</code></td><td>The <code>CREATE_ROLE</code> it depends on failed, was blocked, or was cancelled</td><td>Fix and retry the <code>CREATE_ROLE</code> operation, then retry the user operation, or re-submit the CSV.</td></tr>
+<tr><td>User operation stays <code>QUEUED</code></td><td>Its <code>CREATE_ROLE</code> dependency is not yet approved or has not run</td><td>Approve the <code>CREATE_ROLE</code> operation from the same batch, then <em>Execute queue now</em>.</td></tr>
+<tr><td>Approval refused: <code>depends on rejected or failed operation</code></td><td>The role this user needs was rejected</td><td>Re-submit the CSV if the role is still wanted.</td></tr>
+</tbody></table></div>
+
+<h2 id="rollback">15. Uninstall / rollback</h2>
+<div class="note">Uninstalling does not change users already created in managed accounts, or roles created from CSV imports. Disable or hand over those users first if required. Roles created by the app carry the comment <code>managed by acct-admin op ...</code>; find them with <code>SHOW ROLES</code> in the managed account and drop them only after confirming nothing depends on them.</div>
+<p><span class="where central">EIGHTY451</span> As ACCOUNTADMIN:</p>
+<pre><code>ALTER TASK ACCT_ADMIN_DB.WORKER.DISPATCH_TASK SUSPEND;
+ALTER TASK ACCT_ADMIN_DB.WORKER.RECONCILE_TASK SUSPEND;
+ALTER TASK ACCT_ADMIN_DB.WORKER.PURGE_HANDOFF_TASK SUSPEND;
+
+-- One per account
+DROP INTEGRATION IF EXISTS ACCT_ADMIN_EAI_CPG_ACME;
+
+DROP DATABASE IF EXISTS ACCT_ADMIN_DB;
+DROP WAREHOUSE IF EXISTS ACCT_ADMIN_WH;
+DROP ROLE IF EXISTS ACCT_ADMIN_OWNER;
+DROP ROLE IF EXISTS ACCT_ADMIN_VIEWER;
+DROP ROLE IF EXISTS ACCT_ADMIN_OPERATOR;
+DROP ROLE IF EXISTS ACCT_ADMIN_APPROVER;
+DROP ROLE IF EXISTS ACCT_ADMIN_PRIV_APPROVER;
+DROP ROLE IF EXISTS ACCT_ADMIN_WORKER;
+DROP ROLE IF EXISTS ACCT_ADMIN_BOOTSTRAP;</code></pre>
+<p><span class="where target">Managed account</span> As ACCOUNTADMIN:</p>
+<pre><code>DROP USER IF EXISTS SVC_ACCT_ADMIN;
+DROP ROLE IF EXISTS ACCT_USER_ADMIN;
+-- Only if no users still reference the policies:
+-- DROP DATABASE IF EXISTS ADMIN_POLICIES;</code></pre>
+<p>To disconnect a single account without uninstalling, pause it in the app, then drop its integration and secret and set <code>IS_ENABLED = FALSE</code>.</p>
+
+<h2 id="reference">Reference documentation</h2>
+<ul>
+  <li><a href="https://docs.snowflake.com/en/developer-guide/sql-api/authenticating">SQL API authentication</a></li>
+  <li><a href="https://docs.snowflake.com/en/user-guide/key-pair-auth">Key-pair authentication and rotation</a></li>
+  <li><a href="https://docs.snowflake.com/en/developer-guide/external-network-access/creating-using-external-network-access">External access integrations</a></li>
+  <li><a href="https://docs.snowflake.com/en/developer-guide/streamlit/object-management/security">Streamlit in Snowflake security</a></li>
+  <li><a href="https://docs.snowflake.com/en/user-guide/authentication-policies">Authentication policies</a></li>
+  <li><a href="https://docs.snowflake.com/en/user-guide/security-mfa">Multi-factor authentication</a></li>
+  <li><a href="https://docs.snowflake.com/en/user-guide/organizations-manage-accounts">Managing accounts in an organization</a></li>
+</ul>
+
+<footer>Prepared by Snowflake for 84.51&deg;. Validate each step in a non-production account before applying to customer accounts.</footer>
+</body>
+</html>

@@ -1,0 +1,2 @@
+username,email,first_name,last_name,role_name,default_role,action
+TEST_USER_001,joe.jordan@snowflake.com,Test,User,DEMO_ANALYST_ROLE,DEMO_ANALYST_ROLE,ONBOARD

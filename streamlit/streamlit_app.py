@@ -2,7 +2,7 @@ import streamlit as st
 
 from lib.db import can, is_accountadmin, permissions, viewer
 
-st.set_page_config(page_title="Managed accounts admin", page_icon=":material/admin_panel_settings:", layout="wide")
+st.set_page_config(page_title="Managed Accounts Admin", page_icon=":material/admin_panel_settings:", layout="wide")
 
 user = viewer()
 if not is_accountadmin(user):

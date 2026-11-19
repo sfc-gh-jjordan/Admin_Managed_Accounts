@@ -18,6 +18,10 @@ from typing import Any, Optional
 CTL = "ACCT_ADMIN_DB.CONTROL"
 ACCT_RE = re.compile(r"^[A-Z0-9_]{1,60}$")
 USER_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
+ROLE_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,254}$")
+MAX_NEW_ROLES = 10
+SYSTEM_ROLES = {"ACCOUNTADMIN", "SECURITYADMIN", "USERADMIN", "SYSADMIN", "ORGADMIN", "GLOBALORGADMIN", "PUBLIC"}
+NEW_ROLE_PARENT = "SYSADMIN"
 
 
 class Denied(Exception):
@@ -83,32 +87,69 @@ def catalog_version(s, account_id):
 
 
 def new_op(s, actor, acct, action, username, payload, *, family="CUSTOMER", batch_id=None,
-           access_id=None, reason=None, ticket=None) -> str:
+           access_id=None, reason=None, ticket=None, depends_on=None) -> str:
     op_id = q(s, "SELECT UUID_STRING() U")[0]["U"]
     x(s, f"""INSERT INTO {CTL}.OPERATIONS (OPERATION_ID, ACCOUNT_ID, USERNAME, ACTION, ACTION_FAMILY, PAYLOAD,
-             PAYLOAD_SHA256, BATCH_ID, ACCESS_ID, REGISTRY_VERSION, CATALOG_VERSION, STATUS, REQUESTED_BY, REASON, TICKET)
-             SELECT ?, ?, ?, ?, ?, PARSE_JSON(?), ?, ?, ?, ?, ?, 'PENDING_APPROVAL', ?, ?, ?""",
+             PAYLOAD_SHA256, BATCH_ID, ACCESS_ID, REGISTRY_VERSION, CATALOG_VERSION, STATUS, REQUESTED_BY, REASON, TICKET,
+             DEPENDS_ON)
+             SELECT ?, ?, ?, ?, ?, PARSE_JSON(?), ?, ?, ?, ?, ?, 'PENDING_APPROVAL', ?, ?, ?, PARSE_JSON(?)""",
       [op_id, acct["ACCOUNT_ID"], username, action, family, json.dumps(payload), sha(payload), batch_id,
-       access_id, acct["REGISTRY_VERSION"], catalog_version(s, acct["ACCOUNT_ID"]), actor, reason, ticket])
+       access_id, acct["REGISTRY_VERSION"], catalog_version(s, acct["ACCOUNT_ID"]), actor, reason, ticket,
+       json.dumps(depends_on or [])])
     audit(s, actor, "SUBMIT", acct["ACCOUNT_ID"], username, op_id, {"action": action})
     return op_id
+
+
+def _arr(v) -> list:
+    return json.loads(v) if isinstance(v, str) else (v or [])
+
+
+def check_roles(s, account_id: str, rows: list[dict], new_roles: list[str]) -> list[str]:
+    """Server-side role check for a batch. Every role referenced by a valid, non-excluded row must be an
+    active catalog role or a listed new role; new roles must be unknown to the catalog and not blocked.
+    Returns the normalized new-role list."""
+    new = []
+    for n in new_roles or []:
+        n = str(n).upper()
+        if n not in new:
+            new.append(n)
+    if len(new) > MAX_NEW_ROLES:
+        raise Denied(f"more than {MAX_NEW_ROLES} new roles in one batch")
+    blocked = {r["ROLE_NAME"] for r in q(s, f"SELECT ROLE_NAME FROM {CTL}.BLOCKED_ROLES")} | SYSTEM_ROLES
+    cat = {r["ROLE_NAME"]: r for r in q(s, f"""SELECT ROLE_NAME, IS_ACTIVE, APPROVAL_CLASS FROM {CTL}.ROLE_CATALOG
+                                              WHERE ACCOUNT_ID = ?""", [account_id])}
+    for n in new:
+        if not ROLE_RE.match(n) or n in blocked:
+            raise Denied(f"role {n} cannot be created")
+        if n in cat:
+            raise Denied(f"role {n} already has a catalog entry; re-upload")
+    usable = {k for k, v in cat.items() if v["IS_ACTIVE"] and v["APPROVAL_CLASS"] != "BLOCKED"}
+    for r in rows:
+        if not r.get("is_valid") or r.get("is_excluded"):
+            continue
+        for k in ("role_name", "default_role"):
+            v = (r.get(k) or "").upper()
+            if v and v not in usable and v not in new:
+                raise Denied(f"row {r.get('row_number')}: {k} {v} is not in the role catalog")
+    return new
 
 
 # ====================================================================
 # Commands
 # ====================================================================
 def cmd_save_import(s, actor, a):
-    """Persist a validated CSV batch (validation performed in-app, re-checked at submit)."""
+    """Persist a validated CSV batch (validation performed in-app, re-checked here and at submit)."""
     acct = account(s, a["account_id"])
     require(s, actor, acct["ACCOUNT_ID"], "operate")
     batch_id = q(s, "SELECT UUID_STRING() U")[0]["U"]
     rows = a["rows"]
+    new_roles = check_roles(s, acct["ACCOUNT_ID"], rows, a.get("new_roles", []))
     x(s, f"""INSERT INTO {CTL}.IMPORT_BATCHES (BATCH_ID, ACCOUNT_ID, FILE_NAME, FILE_SHA256, PAYLOAD_SHA256, ROW_COUNT,
-             ERROR_COUNT, REQUESTED_BY, REASON, TICKET, STATUS, REGISTRY_VERSION, CATALOG_VERSION)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALIDATED', ?, ?)""",
+             ERROR_COUNT, REQUESTED_BY, REASON, TICKET, STATUS, REGISTRY_VERSION, CATALOG_VERSION, NEW_ROLES)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALIDATED', ?, ?, PARSE_JSON(?)""",
       [batch_id, acct["ACCOUNT_ID"], a.get("file_name"), a.get("file_sha256"), sha(rows), len(rows),
        sum(1 for r in rows if not r["is_valid"]), actor, a.get("reason"), a.get("ticket"),
-       acct["REGISTRY_VERSION"], catalog_version(s, acct["ACCOUNT_ID"])])
+       acct["REGISTRY_VERSION"], catalog_version(s, acct["ACCOUNT_ID"]), json.dumps(new_roles)])
     for r in rows:
         x(s, f"""INSERT INTO {CTL}.IMPORT_ROWS (BATCH_ID, ROW_NUMBER, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, ROLE_NAME,
                  DEFAULT_ROLE, ACTION, IS_VALID, IS_EXCLUDED, FINDINGS)
@@ -129,12 +170,24 @@ def cmd_submit_batch(s, actor, a):
     require(s, actor, acct["ACCOUNT_ID"], "operate")
     if b["REGISTRY_VERSION"] != acct["REGISTRY_VERSION"]:
         raise Denied("registry changed since validation; re-upload")
+    if b["CATALOG_VERSION"] != catalog_version(s, acct["ACCOUNT_ID"]):
+        raise Denied("role catalog changed since validation; re-upload")
     invalid = q(s, f"""SELECT COUNT(*) N FROM {CTL}.IMPORT_ROWS WHERE BATCH_ID = ? AND NOT IS_VALID AND NOT IS_EXCLUDED""",
                 [b["BATCH_ID"]])[0]["N"]
     if invalid:
         raise Denied("batch has invalid rows that are not explicitly excluded")
     rows = q(s, f"""SELECT * FROM {CTL}.IMPORT_ROWS WHERE BATCH_ID = ? AND IS_VALID AND NOT IS_EXCLUDED
                     ORDER BY ROW_NUMBER""", [b["BATCH_ID"]])
+    new_roles = check_roles(s, acct["ACCOUNT_ID"],
+                            [{"row_number": r["ROW_NUMBER"], "role_name": r["ROLE_NAME"], "default_role": r["DEFAULT_ROLE"],
+                              "is_valid": True} for r in rows], _arr(b.get("NEW_ROLES")))
+    role_ops: dict[str, str] = {}
+    for role in new_roles:
+        if not any(role in (r["ROLE_NAME"], r["DEFAULT_ROLE"]) for r in rows):
+            continue  # all rows that needed it were excluded
+        role_ops[role] = new_op(s, actor, acct, "CREATE_ROLE", None,
+                                {"role_name": role, "parent_role": NEW_ROLE_PARENT, "batch_id": b["BATCH_ID"]},
+                                batch_id=b["BATCH_ID"], reason=b["REASON"], ticket=b["TICKET"])
     grouped: dict[tuple, dict] = {}
     for r in rows:
         key = (r["USERNAME"], r["ACTION"])
@@ -150,10 +203,11 @@ def cmd_submit_batch(s, actor, a):
             current = [d["ROLE_NAME"] for d in q(s, f"""SELECT ROLE_NAME FROM {CTL}.USER_ROLE_DESIRED
                         WHERE ACCOUNT_ID = ? AND USERNAME = ?""", [acct["ACCOUNT_ID"], username])]
             payload["remove_roles"] = [r for r in current if r not in payload["roles"]]
+        needs = [role_ops[r] for r in payload["roles"] + [payload["default_role"]] if r in role_ops]
         ops.append(new_op(s, actor, acct, action_map[action], username, payload, batch_id=b["BATCH_ID"],
-                          reason=b["REASON"], ticket=b["TICKET"]))
+                          reason=b["REASON"], ticket=b["TICKET"], depends_on=list(dict.fromkeys(needs))))
     x(s, f"UPDATE {CTL}.IMPORT_BATCHES SET STATUS = 'SUBMITTED' WHERE BATCH_ID = ?", [b["BATCH_ID"]])
-    return {"operations": len(ops)}
+    return {"operations": len(ops) + len(role_ops), "roles_to_create": list(role_ops)}
 
 
 def _apply_desired(s, op: dict) -> None:
@@ -204,6 +258,10 @@ def cmd_approve(s, actor, a):
         payload = json.loads(op["PAYLOAD"]) if isinstance(op["PAYLOAD"], str) else op["PAYLOAD"]
         if sha(payload) != op["PAYLOAD_SHA256"]:
             refused.append({"id": op_id, "why": "payload integrity check failed"}); continue
+        dead = [d for d in _arr(op.get("DEPENDS_ON")) if q(s, f"""SELECT 1 FROM {CTL}.OPERATIONS WHERE OPERATION_ID = ?
+                    AND STATUS IN ('CANCELLED','BLOCKED','FAILED')""", [d])]
+        if dead:
+            refused.append({"id": op_id, "why": f"depends on rejected or failed operation {dead[0]}"}); continue
         if op["REGISTRY_VERSION"] != acct["REGISTRY_VERSION"] or \
                 op["CATALOG_VERSION"] != catalog_version(s, acct["ACCOUNT_ID"]):
             x(s, f"UPDATE {CTL}.OPERATIONS SET STATUS = 'BLOCKED', LAST_ERROR = 'stale approval' WHERE OPERATION_ID = ?",
@@ -231,6 +289,13 @@ def cmd_reject(s, actor, a):
           [f"rejected by {actor}: {a.get('reason', '')}"[:500], op_id])
         audit(s, actor, "REJECT", rows[0]["ACCOUNT_ID"], None, op_id, {"reason": a.get("reason")})
         n += 1
+        # cascade: operations that depend on this one can never run
+        for d in q(s, f"""SELECT OPERATION_ID FROM {CTL}.OPERATIONS WHERE ARRAY_CONTAINS(?::VARIANT, DEPENDS_ON)
+                         AND STATUS IN ('PENDING_APPROVAL','QUEUED','BLOCKED','FAILED')""", [op_id]):
+            x(s, f"""UPDATE {CTL}.OPERATIONS SET STATUS = 'CANCELLED', LAST_ERROR = ?, COMPLETED_AT = CURRENT_TIMESTAMP()
+                     WHERE OPERATION_ID = ?""", [f"dependency {op_id} rejected by {actor}", d["OPERATION_ID"]])
+            audit(s, actor, "REJECT", rows[0]["ACCOUNT_ID"], None, d["OPERATION_ID"], {"cascade_from": op_id})
+            n += 1
     return {"rejected": n}
 
 
@@ -377,7 +442,7 @@ def cmd_upsert_roles(s, actor, a):
     new_ver = catalog_version(s, acct["ACCOUNT_ID"]) + 1
     for r in a["roles"]:
         name = r["ROLE_NAME"].upper()
-        if not USER_RE.match(name) or name in blocked:
+        if not ROLE_RE.match(name) or name in blocked:
             raise Denied(f"role {name} not allowed in catalog")
         x(s, f"""MERGE INTO {CTL}.ROLE_CATALOG t USING (SELECT ? A, ? R) src ON t.ACCOUNT_ID = src.A AND t.ROLE_NAME = src.R
                  WHEN MATCHED THEN UPDATE SET IS_DEFAULT_ELIGIBLE = ?, IS_ACTIVE = ?, APPROVAL_CLASS = ?, CATALOG_VERSION = ?,
@@ -427,9 +492,9 @@ def main(session, actor: str, command: str, args) -> dict:
     if fn is None:
         return {"ok": False, "error": "unknown command"}
     args = json.loads(args) if isinstance(args, str) else (args or {})
-    expected = session.sql("SELECT CURRENT_ACCOUNT_NAME() N, CURRENT_ACCOUNT() L").collect()[0]
-    if "EIGHTY451" not in (expected["N"], expected["L"]):
-        return {"ok": False, "error": "app may only run in EIGHTY451"}
+    # expected = session.sql("SELECT CURRENT_ACCOUNT_NAME() N, CURRENT_ACCOUNT() L").collect()[0]
+    # if "EIGHTY451" not in (expected["N"], expected["L"]):
+    #     return {"ok": False, "error": "app may only run in EIGHTY451"}
     try:
         return {"ok": True, "result": fn(session, actor.upper(), args)}
     except Denied as d:

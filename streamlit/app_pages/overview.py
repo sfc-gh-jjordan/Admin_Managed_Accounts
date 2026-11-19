@@ -35,10 +35,10 @@ by_acct = cached_query(f"""
            MAX(u.LAST_VERIFIED_AT)                                AS LAST_VERIFIED_AT
     FROM {CTL}.CUSTOMER_ACCOUNTS a LEFT JOIN {CTL}.USER_CONTROL u USING (ACCOUNT_ID)
     GROUP BY 1,2,3,4,5 ORDER BY DRIFTED DESC, ACCOUNT_ID""")
-st.dataframe(by_acct, hide_index=True, alt="Per-account managed coverage")
+st.dataframe(by_acct, hide_index=True)
 
 st.subheader("Recent failures")
 fails = cached_query(f"""SELECT REQUESTED_AT, ACCOUNT_ID, USERNAME, ACTION, STATUS, ATTEMPTS, LAST_ERROR
                          FROM {CTL}.OPERATIONS WHERE STATUS IN ('FAILED','PARTIAL','BLOCKED')
                          ORDER BY REQUESTED_AT DESC LIMIT 50""")
-st.dataframe(fails, hide_index=True, alt="Recent failed operations")
+st.dataframe(fails, hide_index=True)

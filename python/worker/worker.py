@@ -497,7 +497,50 @@ def h_disable_internal(session, r, acct, op, p):
     return res
 
 
+# ------------------------------------------------------- role creation
+def remote_role_exists(r: StepRunner, role: str) -> bool:
+    res = r.run("SHOW_ROLE", A.show_role(role))
+    return any((row.get("name") or "").upper() == role.upper() for row in res.as_dicts())
+
+
+def h_create_role(session, r, acct, op, p):
+    """Create an empty role requested by a CSV batch, attach it under SYSADMIN, and add it to the catalog.
+    A role that already exists on the target is adopted as-is (hierarchy untouched) and flagged."""
+    if acct["EXEC_ROLE"].upper() != "ACCOUNTADMIN":
+        raise Blocked("CREATE_ROLE requires ACCOUNTADMIN execution role")
+    account_id, role = acct["ACCOUNT_ID"], p["role_name"].upper()
+    cat = q(session, f"SELECT IS_ACTIVE, APPROVAL_CLASS FROM {CTL}.ROLE_CATALOG WHERE ACCOUNT_ID = ? AND ROLE_NAME = ?",
+            [account_id, role])
+    if cat and (not cat[0]["IS_ACTIVE"] or cat[0]["APPROVAL_CLASS"] == "BLOCKED"):
+        raise Blocked(f"role {role} was disabled in the catalog after approval")
+    existed = remote_role_exists(r, role)
+    if not existed:
+        r.run("CREATE_ROLE", A.create_role(role, f"managed by acct-admin op {op['OPERATION_ID'][:8]}"))
+        r.run("GRANT_ROLE_TO_PARENT", A.grant_role_to_parent(role, p.get("parent_role") or "SYSADMIN"))
+        if not remote_role_exists(r, role):
+            raise SqlApiError("role not observed on read-back", uncertain=True)
+
+    old_ver = q(session, f"SELECT COALESCE(MAX(CATALOG_VERSION),0) V FROM {CTL}.ROLE_CATALOG WHERE ACCOUNT_ID = ?",
+                [account_id])[0]["V"]
+    new_ver = old_ver + 1
+    note = (f"auto-created from import {p.get('batch_id')} by {op['REQUESTED_BY']}, approved by {op['APPROVED_BY']}"
+            + (" (pre-existing on target)" if existed else ""))
+    x(session, f"""MERGE INTO {CTL}.ROLE_CATALOG t USING (SELECT ? A, ? R) src ON t.ACCOUNT_ID = src.A AND t.ROLE_NAME = src.R
+                   WHEN NOT MATCHED THEN INSERT (ACCOUNT_ID, ROLE_NAME, IS_DEFAULT_ELIGIBLE, IS_ACTIVE, APPROVAL_CLASS,
+                        REVIEW_NOTES, CATALOG_VERSION) VALUES (src.A, src.R, TRUE, TRUE, 'STANDARD', ?, ?)""",
+      [account_id, role, note[:1000], new_ver])
+    x(session, f"UPDATE {CTL}.ROLE_CATALOG SET CATALOG_VERSION = ? WHERE ACCOUNT_ID = ?", [new_ver, account_id])
+    # Pending operations of the same batch were validated against this exact change; keep their approval valid.
+    x(session, f"""UPDATE {CTL}.OPERATIONS SET CATALOG_VERSION = ?
+                   WHERE BATCH_ID = ? AND STATUS = 'PENDING_APPROVAL' AND CATALOG_VERSION = ?""",
+      [new_ver, op["BATCH_ID"], old_ver])
+    audit(session, "REGISTRY", account_id, None, op["OPERATION_ID"],
+          {"role_created": role, "pre_existing": existed, "role_catalog_version": new_ver})
+    return {"role": role, "created": not existed, "catalog_version": new_ver}
+
+
 HANDLERS = {
+    "CREATE_ROLE": h_create_role,
     "ONBOARD_USER": h_onboard,
     "ADD_ROLES": h_add_roles,
     "SET_MANAGED_ROLES": h_set_managed_roles,
@@ -601,6 +644,20 @@ def _account_health(session, account_id: str, success: bool) -> None:
                    WHERE ACCOUNT_ID = ?""", [CIRCUIT_BREAKER_THRESHOLD, CIRCUIT_BREAKER_THRESHOLD, account_id])
 
 
+def dependency_state(session, op: dict) -> str:
+    """READY when all DEPENDS_ON ops succeeded, WAIT while any is still pending, DEAD if any can never succeed."""
+    deps = as_list(op.get("DEPENDS_ON"))
+    if not deps:
+        return "READY"
+    rows = q(session, f"""SELECT STATUS FROM {CTL}.OPERATIONS WHERE OPERATION_ID IN
+                          (SELECT VALUE::STRING FROM TABLE(FLATTEN(INPUT => PARSE_JSON(?))))""",
+             [json.dumps(deps)])
+    statuses = [r["STATUS"] for r in rows]
+    if len(statuses) < len(deps) or any(s_ in ("CANCELLED", "BLOCKED", "FAILED", "PARTIAL") for s_ in statuses):
+        return "DEAD"
+    return "READY" if all(s_ == "SUCCEEDED" for s_ in statuses) else "WAIT"
+
+
 def process_queue(session, acct: dict, client: SnowflakeSqlApiClient, max_ops: int, run_id: str) -> dict:
     account_id = acct["ACCOUNT_ID"]
     # Atomic claim (single UPDATE). Only ops bound to the current registry version.
@@ -624,6 +681,15 @@ def process_queue(session, acct: dict, client: SnowflakeSqlApiClient, max_ops: i
                 raise Blocked("stale approval: registry changed since approval")
             if not op["APPROVED_BY"] and op["ACTION_FAMILY"] != "SYSTEM":
                 raise Blocked("operation not approved")
+            deps = dependency_state(session, op)
+            if deps == "DEAD":
+                raise Blocked("dependency failed or was rejected")
+            if deps == "WAIT":
+                x(session, f"""UPDATE {CTL}.OPERATIONS SET STATUS = 'QUEUED', CLAIMED_BY = NULL, ATTEMPTS = ATTEMPTS - 1
+                               WHERE OPERATION_ID = ?""", [op_id])
+                stats.setdefault("waiting", 0)
+                stats["waiting"] += 1
+                continue
             if op["ACTION"] in ("ONBOARD_USER", "PROVISION_INTERNAL_ADMIN") and superseded_by_disable(session, op):
                 _finish(session, op_id, "CANCELLED", "superseded by newer disable")
                 stats["cancelled"] += 1

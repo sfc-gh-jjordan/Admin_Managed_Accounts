@@ -11,15 +11,49 @@ USE DATABASE ACCT_ADMIN_DB;
 USE SCHEMA APP;
 USE WAREHOUSE ACCT_ADMIN_WH;
 
+/*
+--View and pin the package versions in the environment.yml file
+
+ls @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE;
+
+CREATE OR REPLACE TEMPORARY FILE FORMAT ACCT_ADMIN_DB.APP.RAW_TEXT_FF
+  TYPE = CSV
+  FIELD_DELIMITER = NONE
+  RECORD_DELIMITER = '\n'
+  SKIP_BLANK_LINES = FALSE
+  ESCAPE_UNENCLOSED_FIELD = NONE;
+
+SELECT METADATA$FILE_ROW_NUMBER AS line_no, $1 AS line
+FROM @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE/app/environment.yml
+  (FILE_FORMAT => 'ACCT_ADMIN_DB.APP.RAW_TEXT_FF')
+ORDER BY line_no;
+
+--Use the LATEST_VERSION values the query returns.
+SELECT package_name,
+       MAX_BY(version, TRY_TO_NUMBER(SPLIT_PART(version,'.',1))*1e6
+                     + TRY_TO_NUMBER(SPLIT_PART(version,'.',2))*1e3
+                     + TRY_TO_NUMBER(SPLIT_PART(version,'.',3))) AS latest_version,
+       ARRAY_AGG(DISTINCT version) WITHIN GROUP (ORDER BY version DESC) AS all_versions
+FROM ACCT_ADMIN_DB.INFORMATION_SCHEMA.PACKAGES
+WHERE language = 'python'
+  AND package_name IN ('streamlit', 'pandas', 'snowflake-snowpark-python')
+GROUP BY package_name;
+
+*/
+
 -- ---------------------------------------------------------------------
--- 1. Upload code (from project root)
+-- 1. Upload code (from project root) or via the Snowsight UI
 -- ---------------------------------------------------------------------
 -- PUT file://python/app/app_commands.py            @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE/cmd AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
 -- PUT file://streamlit/streamlit_app.py            @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE/app AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
 -- PUT file://streamlit/environment.yml             @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE/app AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
 -- PUT file://streamlit/lib/*.py                    @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE/app/lib AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
 -- PUT file://streamlit/app_pages/*.py              @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE/app/app_pages AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+--
 -- ALTER STAGE ACCT_ADMIN_DB.APP.STREAMLIT_STAGE REFRESH;
+
+--Verify files are uploaded
+ls @ACCT_ADMIN_DB.APP.STREAMLIT_STAGE;
 
 -- ---------------------------------------------------------------------
 -- 2. Trusted command procedure. Only the app owner role may call it.
@@ -41,6 +75,9 @@ REVOKE ALL ON PROCEDURE ACCT_ADMIN_DB.APP.COMMAND(VARCHAR, VARCHAR, VARIANT) FRO
 CREATE OR REPLACE STREAMLIT ACCT_ADMIN_DB.APP.MANAGED_ACCOUNTS_ADMIN
   FROM '@ACCT_ADMIN_DB.APP.STREAMLIT_STAGE/app'
   MAIN_FILE = 'streamlit_app.py'
+  -- Explicit: since BCR 2026_06, omitting RUNTIME_NAME defaults to the
+  -- container runtime, which ignores environment.yml.
+  RUNTIME_NAME = 'SYSTEM$WAREHOUSE_RUNTIME'
   QUERY_WAREHOUSE = ACCT_ADMIN_WH
   TITLE = 'Managed accounts admin'
   COMMENT = 'User lifecycle admin for all managed Snowflake accounts';
@@ -59,3 +96,6 @@ REVOKE USAGE ON STREAMLIT ACCT_ADMIN_DB.APP.MANAGED_ACCOUNTS_ADMIN FROM ROLE ACC
 -- VALUES ('JDOE',   '*', TRUE, TRUE, FALSE, FALSE),
 --        ('ASMITH', '*', TRUE, TRUE, TRUE,  FALSE),
 --        ('BLEE',   '*', TRUE, TRUE, TRUE,  TRUE);
+
+--View managed accounts admin app permissions
+SELECT * FROM ACCT_ADMIN_DB.CONTROL.ADMIN_AUTHORIZATIONS;

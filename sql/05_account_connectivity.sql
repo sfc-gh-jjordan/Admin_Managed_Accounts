@@ -20,6 +20,7 @@ USE WAREHOUSE ACCT_ADMIN_WH;
 -- STEP A (manual, per account): store the private key in a SECRET.
 -- Run interactively in a worksheet; do not script with key in files.
 -- ---------------------------------------------------------------------
+-- Update the suffix in the secret name and in the comment for the ACCOUNT_ID of the given managed account
 -- CREATE OR REPLACE SECRET ACCT_ADMIN_DB.SECRETS.SQLAPI_KEY_<ACCOUNT_ID>
 --   TYPE = GENERIC_STRING
 --   SECRET_STRING = '-----BEGIN PRIVATE KEY-----
@@ -31,7 +32,7 @@ USE WAREHOUSE ACCT_ADMIN_WH;
 -- UPDATE ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS
 --    SET PUBLIC_KEY_FP = 'SHA256:<<from DESC USER SVC_ACCT_ADMIN>>',
 --        SECRET_VERSION = 1, REGISTRY_VERSION = REGISTRY_VERSION + 1, UPDATED_AT = CURRENT_TIMESTAMP()
---  WHERE ACCOUNT_ID = '<ACCOUNT_ID>';
+--  WHERE ACCOUNT_ID = '<ACCOUNT_ID>'; --Update this value with the ACCOUNT_ID for the given managed account
 
 -- ---------------------------------------------------------------------
 -- STEP B: generator procedure (network rule + EAI + worker procedure)
@@ -127,19 +128,36 @@ END;
 $$;
 
 -- ---------------------------------------------------------------------
--- STEP C: usage (per account, after STEP A)
+-- ALTERNATIVE: instead of snow sql, you can upload the three files in the Snowsight UI. 
+-- Go to Catalog → Database Explorer, open ACCT_ADMIN_DB → WORKER → Stages → --CODE_STAGE, 
+-- then choose + Files and select sqlapi_client.py, actions.py and worker.py. -- --    
+-- Make sure the files are not compressed and are uploaded to the root of the stage.
 -- ---------------------------------------------------------------------
--- CALL ACCT_ADMIN_DB.WORKER.REGISTER_ACCOUNT_CONNECTIVITY('CPG_ACME');
---
--- Preflight (verifies JWT, host, CURRENT_ACCOUNT(), role) - no changes:
--- USE ROLE ACCT_ADMIN_WORKER;
--- CALL ACCT_ADMIN_DB.WORKER.EXEC_CPG_ACME(0, 'PREFLIGHT');
---
--- Enable after successful preflight:
--- UPDATE ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS SET IS_ENABLED = TRUE WHERE ACCOUNT_ID = 'CPG_ACME';
+-- Upload code (run from the project root with snow sql / snowsql)
+-- PUT file://python/worker/sqlapi_client.py @ACCT_ADMIN_DB.WORKER.CODE_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+-- PUT file://python/worker/actions.py       @ACCT_ADMIN_DB.WORKER.CODE_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+-- PUT file://python/worker/worker.py        @ACCT_ADMIN_DB.WORKER.CODE_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+-- ALTER STAGE ACCT_ADMIN_DB.WORKER.CODE_STAGE REFRESH;
 
 -- ---------------------------------------------------------------------
--- Bulk helper: register every account that has a secret but no EAI yet
+-- STEP C: usage (per account, after STEP A)
+-- ****** IMPORTANT First upload the 3 worker Python modules to the code stage *****
+-- Update procedure parameter to given managed account
 -- ---------------------------------------------------------------------
--- SHOW SECRETS IN SCHEMA ACCT_ADMIN_DB.SECRETS;
--- Then CALL REGISTER_ACCOUNT_CONNECTIVITY for each ACCOUNT_ID listed.
+CALL ACCT_ADMIN_DB.WORKER.REGISTER_ACCOUNT_CONNECTIVITY('CPG_ACME');
+
+--View objects bound to a specific managed account
+SHOW PROCEDURES LIKE 'EXEC_%' IN SCHEMA ACCT_ADMIN_DB.WORKER;
+
+SHOW NETWORK RULES IN SCHEMA ACCT_ADMIN_DB.NET;
+
+SHOW EXTERNAL ACCESS INTEGRATIONS LIKE 'ACCT_ADMIN_EAI_%';
+
+--Verify BOOTSTRAP_STATUS = 'CONNECTIVITY_READY'
+SELECT ACCOUNT_ID, ACCOUNT_LOCATOR, REGION, SQL_API_HOST, JWT_ACCOUNT_IDENTIFIER, BOOTSTRAP_STATUS, IS_ENABLED
+FROM ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS
+WHERE ACCOUNT_ID = 'CPG_ACME';
+
+-- Next: run 06_worker_dispatch_and_tasks.sql, then run the preflight and
+-- enable steps at the end of that script.
+

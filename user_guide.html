@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="snowflake-source" content="cortex-agent-authored" />
+<title>84.51 Managed Accounts Admin – User Guide</title>
+<script type="application/json" id="snowflake-report-metadata">
+{
+  "generated": "2026-11-19",
+  "intent": "End-user guide for the 84.51 Managed Accounts Admin Streamlit app, with a screenshot of each page",
+  "dataSources": [
+    { "type": "file", "path": "streamlit/" },
+    { "type": "file", "path": "python/app/app_commands.py" },
+    { "type": "file", "path": "docs/user_guide/img/" }
+  ],
+  "sections": [
+    { "id": "start", "title": "Before you start" },
+    { "id": "duties", "title": "Duties and what they allow" },
+    { "id": "layout", "title": "Finding your way around" },
+    { "id": "overview", "title": "Overview" },
+    { "id": "inventory", "title": "User inventory" },
+    { "id": "operations", "title": "Operations and health" },
+    { "id": "import", "title": "Import and review" },
+    { "id": "approvals", "title": "Approval queue" },
+    { "id": "accounts", "title": "Account registry" },
+    { "id": "internal", "title": "Internal admin access" },
+    { "id": "workflows", "title": "Common tasks" },
+    { "id": "statuses", "title": "Status reference" },
+    { "id": "faq", "title": "Questions and problems" }
+  ],
+  "producerNotes": "Screenshots were captured from a local run of the app in mock mode (ACCT_ADMIN_MOCK=1) using the fictitious sample data in streamlit/lib/mock_data.py. Re-capture them when page layouts change."
+}
+</script>
+<style>
+  :root { color-scheme: light dark; --accent: #29B5E8; --navy: light-dark(#11567F, #7cc8ec); }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+    max-width: 960px; width: 100%; margin: 0 auto; padding: clamp(16px, 4vw, 32px);
+    line-height: 1.55; color: light-dark(#1f2937, #e5e7eb); background: light-dark(#ffffff, #0f172a);
+  }
+  h1, h2, h3 { color: light-dark(#0f172a, #f1f5f9); line-height: 1.25; }
+  h2 { margin-top: 2.4em; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+  h3 { margin-top: 1.6em; color: var(--navy); }
+  a { color: light-dark(#2563eb, #60a5fa); }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: .9em; background: light-dark(#f1f5f9, #1e293b); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+  pre { background: light-dark(#f8fafc, #1e293b); border: 1px solid light-dark(#e2e8f0, #334155); padding: 12px; border-radius: 8px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  .hero { background: linear-gradient(135deg, #11567F, #29B5E8); color: #fff; border-radius: 12px; padding: clamp(20px, 4vw, 36px); }
+  .hero h1 { color: #fff; margin: 0 0 8px; }
+  .hero p { margin: 4px 0; opacity: .95; }
+  .badge { display: inline-block; background: rgba(255,255,255,.2); border: 1px solid rgba(255,255,255,.5); border-radius: 999px; padding: 3px 12px; font-size: .85em; margin-top: 10px; }
+  .note { border-left: 4px solid #f59e0b; background: light-dark(#fffbeb, #3a2e0b); padding: 10px 14px; border-radius: 6px; margin: 16px 0; }
+  .info { border-left: 4px solid var(--accent); background: light-dark(#eff9fd, #0c2a3a); padding: 10px 14px; border-radius: 6px; margin: 16px 0; }
+  .ok { border-left: 4px solid #16a34a; background: light-dark(#f0fdf4, #0b2a17); padding: 10px 14px; border-radius: 6px; margin: 16px 0; }
+  .table-wrap { overflow-x: auto; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .93em; }
+  th, td { border: 1px solid light-dark(#d1d5db, #374151); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: light-dark(#f3f4f6, #1f2937); }
+  nav.toc { columns: 2 220px; font-size: .93em; margin: 20px 0; }
+  nav.toc a { display: block; padding: 2px 0; }
+  figure { margin: 18px 0; border: 1px solid light-dark(#e2e8f0, #334155); border-radius: 10px; overflow: hidden; background: #fff; }
+  figure img { display: block; width: 100%; height: auto; }
+  figcaption { font-size: .88em; padding: 8px 12px; color: light-dark(#475569, #cbd5e1); background: light-dark(#f8fafc, #1e293b); border-top: 1px solid light-dark(#e2e8f0, #334155); }
+  ol li, ul li { margin: 4px 0; }
+  .pill { display: inline-block; font-size: .8em; font-weight: 600; border-radius: 999px; padding: 1px 9px; background: light-dark(#e0f2fe, #0c2a3a); color: light-dark(#075985, #bae6fd); }
+  footer { margin-top: 3em; font-size: .85em; color: light-dark(#64748b, #94a3b8); border-top: 1px solid light-dark(#e2e8f0, #334155); padding-top: 12px; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>84.51 Managed Accounts Admin</h1>
+  <p>User guide: onboard, change, disable and audit human users across your managed Snowflake accounts</p>
+  <span class="badge">User guide &mdash; v1.0 &mdash; November 19, 2026</span>
+</div>
+
+<div class="info"><strong>About the screenshots.</strong> All screenshots use fictitious sample data (accounts such as <em>Acme Foods</em> and users such as <em>JANE_SMITH</em>). Your accounts, users and numbers will differ. The app runs in Snowsight, so the browser frame around it will look slightly different.</div>
+
+<nav class="toc" aria-label="Contents">
+  <a href="#start">1. Before you start</a>
+  <a href="#duties">2. Duties and what they allow</a>
+  <a href="#layout">3. Finding your way around</a>
+  <a href="#overview">4. Overview</a>
+  <a href="#inventory">5. User inventory</a>
+  <a href="#operations">6. Operations and health</a>
+  <a href="#import">7. Import and review</a>
+  <a href="#approvals">8. Approval queue</a>
+  <a href="#accounts">9. Account registry</a>
+  <a href="#internal">10. Internal admin access</a>
+  <a href="#workflows">11. Common tasks</a>
+  <a href="#statuses">12. Status reference</a>
+  <a href="#faq">13. Questions and problems</a>
+</nav>
+
+<h2 id="start">1. Before you start</h2>
+<ul>
+  <li><strong>Who can use the app:</strong> only users who hold <strong>ACCOUNTADMIN</strong> in EIGHTY451 and have a row in the app&rsquo;s duty table. If either is missing, the app shows a lock message and stops.</li>
+  <li><strong>Opening it:</strong> in Snowsight (EIGHTY451), switch to the <strong>ACCOUNTADMIN</strong> role and open <em>Projects &raquo; Streamlit &raquo; MANAGED_ACCOUNTS_ADMIN</em>.</li>
+  <li><strong>Nothing changes immediately.</strong> Every change to a managed account is a <em>request</em>. A different admin must approve it, and a background worker then carries it out (normally within 5 minutes) and verifies the result.</li>
+  <li><strong>Four eyes.</strong> You can never approve your own request.</li>
+  <li><strong>&ldquo;Unknown&rdquo; is not &ldquo;OK&rdquo;.</strong> Observed values come from the last reconciliation. A blank or <code>UNKNOWN</code> value means it has not been verified yet. It never means enabled, disabled or MFA-enrolled.</li>
+</ul>
+
+<h2 id="duties">2. Duties and what they allow</h2>
+<p>Your duties are set per account (or for all accounts) by the app owners. Buttons you are not allowed to use are greyed out.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Duty</th><th>You can</th></tr></thead>
+<tbody>
+<tr><td>View</td><td>See every page, the inventory, operations and audit trail.</td></tr>
+<tr><td>Operate</td><td>Upload CSVs, request disable / re-enable / password links / MFA enrollment, request internal admin access, run preflight and reconcile.</td></tr>
+<tr><td>Approve</td><td>Approve or reject customer requests (including roles to be created from a CSV), retry or cancel operations, execute the queue, pause or resume accounts, and deliver secure links.</td></tr>
+<tr><td>Privileged approve</td><td>Approve internal ACCOUNTADMIN access, edit account settings and the role catalog.</td></tr>
+</tbody></table></div>
+
+<h2 id="layout">3. Finding your way around</h2>
+<p>The sidebar groups the pages. Your user name is shown at the bottom of the sidebar.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Group</th><th>Page</th><th>Use it to</th></tr></thead>
+<tbody>
+<tr><td rowspan="3">Monitor</td><td><a href="#overview">Overview</a></td><td>See health at a glance</td></tr>
+<tr><td><a href="#inventory">User inventory</a></td><td>Find users and request disable, re-enable, password or MFA links</td></tr>
+<tr><td><a href="#operations">Operations and health</a></td><td>Track requests, see step-level results, retry or cancel, read the audit trail</td></tr>
+<tr><td rowspan="3">Manage</td><td><a href="#import">Import and review</a></td><td>Upload a customer CSV and submit it for approval</td></tr>
+<tr><td><a href="#approvals">Approval queue</a></td><td>Approve or reject pending requests</td></tr>
+<tr><td><a href="#accounts">Account registry</a></td><td>Account settings, role catalog, run preflight / reconcile / queue, pause</td></tr>
+<tr><td>Privileged</td><td><a href="#internal">Internal admin access</a></td><td>84.51 ACCOUNTADMIN access requests, approvals, revocation and secure handoff</td></tr>
+</tbody></table></div>
+<p>Tables can be searched, sorted, resized, downloaded or shown full screen from the small toolbar that appears when you hover over them. Scroll a table sideways to see more columns.</p>
+
+<h2 id="overview">4. Overview</h2>
+<figure><img src="docs/user_guide/img/01_overview.png" alt="Overview page with metric tiles, a by-account table and recent failures" /><figcaption>Overview: coverage metrics, per-account summary and recent failures.</figcaption></figure>
+<ul>
+  <li><strong>Metric tiles:</strong> registered, active and paused accounts; pending approvals; managed users enabled and disabled; unmanaged users observed; operations in flight; failed or blocked operations; secure links waiting for delivery; users whose MFA has not yet been observed; users with drift.</li>
+  <li><strong>By account:</strong> one row per managed account with its status and user counts. Accounts with the most drift are listed first.</li>
+  <li><strong>Recent failures:</strong> the latest failed, partial or blocked operations with their error. Open <a href="#operations">Operations and health</a> to retry or cancel them.</li>
+</ul>
+<div class="info">Read-only. Data refreshes about every minute; reload the page for the latest figures.</div>
+
+<h2 id="inventory">5. User inventory</h2>
+<figure><img src="docs/user_guide/img/02_inventory.png" alt="User inventory with filters and a user table" /><figcaption>User inventory: desired state (what the app wants) next to observed state (what was last seen in the account).</figcaption></figure>
+<h3>Filters</h3>
+<ul>
+  <li><strong>Accounts</strong> &ndash; leave empty for every account you can see.</li>
+  <li><strong>Username contains</strong> &ndash; partial, case-insensitive match.</li>
+  <li><strong>Scope</strong> &ndash; <em>Managed</em> (created or adopted by the app), <em>Unmanaged</em> (seen in the account but not managed), or <em>All</em>.</li>
+  <li><strong>Issues</strong> &ndash; any combination of <em>Drift</em>, <em>Stale</em> (not verified recently), <em>MFA pending</em> and <em>Failed op</em>.</li>
+</ul>
+<h3>Key columns</h3>
+<p><code>DESIRED_STATE</code> / <code>OBSERVED_DISABLED</code>, <code>DESIRED_ROLES</code> / <code>OBSERVED_ROLES</code>, <code>MFA_EVIDENCE</code>, <code>DRIFT_FLAGS</code>, <code>LAST_VERIFIED_AT</code> and <code>LAST_OPERATION_STATUS</code>. Use <strong>Download CSV</strong> to export the filtered list.</p>
+<h3>Request an action for users</h3>
+<ol>
+  <li>Tick <strong>Select</strong> for one or more <em>managed customer</em> users in a single account. Internal admins are handled on <a href="#internal">Internal admin access</a>.</li>
+  <li>Under <strong>Request action for selected customer users</strong>, choose <em>Disable</em>, <em>Re-enable</em>, <em>Password setup link</em> or <em>MFA enrollment</em>.</li>
+  <li>Enter a <strong>Reason</strong> (required) and a <strong>Ticket</strong>, then click <strong>Request for N user(s)</strong>.</li>
+  <li>Another admin approves it in the <a href="#approvals">Approval queue</a>.</li>
+</ol>
+
+<h2 id="operations">6. Operations and health</h2>
+<figure><img src="docs/user_guide/img/03_operations.png" alt="Operations table, account health and audit trail" /><figcaption>Operations and health: every request, accounts needing attention, and the audit trail.</figcaption></figure>
+<ul>
+  <li><strong>Account</strong> and <strong>Status</strong> filters. By default the page shows work that is queued, running, failed or blocked. Click <strong>Refresh</strong> to reload.</li>
+  <li><strong>Steps:</strong> tick exactly one operation to see each statement the worker ran, with its outcome, HTTP status, Snowflake error code and error message.</li>
+  <li><strong>Retry selected</strong> re-queues approved operations that failed, partially completed or were blocked (for example after the user enrolled MFA). <strong>Cancel selected</strong> stops them. Both need the Approve duty.</li>
+  <li><strong>Account health</strong> lists accounts that are paused, have recent consecutive failures, or have not passed preflight.</li>
+  <li><strong>Audit trail</strong> shows the latest 500 events: who imported, submitted, approved, rejected or executed what, and when.</li>
+</ul>
+
+<h2 id="import">7. Import and review</h2>
+<p>Use this page to onboard users, add or replace their roles, and disable or re-enable them in bulk from a customer CSV.</p>
+<figure><img src="docs/user_guide/img/04_import_empty.png" alt="Import page before a file is uploaded" /><figcaption>Choose the account, then upload the CSV. Open <em>CSV contract</em> for the required format.</figcaption></figure>
+<h3>CSV format</h3>
+<p>The header must be exactly:</p>
+<pre><code>username,email,first_name,last_name,role_name,default_role,action</code></pre>
+<div class="table-wrap"><table>
+<thead><tr><th>Action</th><th>Meaning</th><th>Role columns</th></tr></thead>
+<tbody>
+<tr><td><code>ONBOARD</code></td><td>Create the user (disabled), attach the MFA policy, grant roles, then enable</td><td>Required; one row per role</td></tr>
+<tr><td><code>ADD_ROLES</code></td><td>Grant extra roles to an existing managed user</td><td>Required</td></tr>
+<tr><td><code>SET_MANAGED_ROLES</code></td><td>Make the listed roles the user&rsquo;s complete set of app-managed roles (others the app granted are revoked)</td><td>Required</td></tr>
+<tr><td><code>DISABLE</code> / <code>REENABLE</code></td><td>Disable or re-enable an existing managed user</td><td>Must be empty</td></tr>
+</tbody></table></div>
+<p>Give a user several roles with one row per role; all of that user&rsquo;s rows must agree on email, names, default role and action. <code>default_role</code> must be one of the user&rsquo;s roles. Files may have up to 2,000 rows (1 MB).</p>
+
+<h3>Review the rows</h3>
+<figure><img src="docs/user_guide/img/05_import_review.png" alt="Import review with row counts, row table, impact preview and roles to be created" /><figcaption>After upload: counts, each row with its validity and findings, the impact preview, and roles that will be created.</figcaption></figure>
+<ul>
+  <li>Every row is checked: format, approved email domain, blocked or protected users, roles in the account&rsquo;s catalog, and no passwords, links or SQL text in any field.</li>
+  <li>The <strong>Findings</strong> column (scroll right) explains each problem, for example <code>role_name: ACCOUNTADMIN is blocked</code> or <code>email: domain not approved for this account</code>.</li>
+  <li>A rejected row must be ticked <strong>Exclude</strong> before the batch can be submitted. Fix the CSV and upload again if the row is needed.</li>
+  <li><strong>Impact preview</strong> counts the users who will be onboarded, have role changes, or be disabled or re-enabled.</li>
+</ul>
+
+<h3 id="new-roles">Roles to be created</h3>
+<figure><img src="docs/user_guide/img/06_import_submit.png" alt="Roles to be created list, confirmation checkbox and submit form" /><figcaption>Roles named in the CSV that are not yet in the account&rsquo;s role catalog are listed here. You must confirm them before submitting.</figcaption></figure>
+<p>If a row names a role that the account&rsquo;s role catalog does not contain, the row stays valid and its finding reads <code>role_name: &lt;ROLE&gt; will be created (new role)</code>. When approved, the role is created in the managed account, granted to SYSADMIN, and added to the catalog so it can be used as a default role.</p>
+<ul>
+  <li>New roles start with <strong>no privileges</strong>. Ask the account owner to grant them access to warehouses and data.</li>
+  <li>Roles that are blocked, built-in Snowflake roles (ACCOUNTADMIN, SYSADMIN and so on), or switched off in the catalog are never created; those rows are rejected.</li>
+  <li>A batch can create at most 10 new roles.</li>
+</ul>
+<div class="note"><strong>Check the spelling.</strong> A typo in <code>role_name</code> creates a new, misspelled role rather than failing. Read the <em>Roles to be created</em> list carefully before ticking the confirmation.</div>
+
+<h3>Submit</h3>
+<ol>
+  <li>Exclude every rejected row.</li>
+  <li>If roles will be created, tick <strong>I confirm these role name(s) are correct and should be created</strong>.</li>
+  <li>Enter a <strong>Reason</strong> and a <strong>Ticket / customer confirmation reference</strong> (both required).</li>
+  <li>Click <strong>Submit for approval</strong>. One request is created per user and action, plus one <code>CREATE_ROLE</code> request per new role.</li>
+</ol>
+<div class="info">If the account&rsquo;s settings or role catalog change between upload and submit, the submit is refused and you are asked to upload again.</div>
+
+<h2 id="approvals">8. Approval queue</h2>
+<figure><img src="docs/user_guide/img/07_approvals.png" alt="Approval queue listing pending customer operations" /><figcaption>Approval queue: pending customer requests, including a <code>CREATE_ROLE</code> request and the onboarding that depends on it.</figcaption></figure>
+<ol>
+  <li>Choose <strong>CUSTOMER</strong> or <strong>PRIVILEGED</strong>. Privileged requests (internal ACCOUNTADMIN grants and revocations) need the Privileged approve duty.</li>
+  <li>Review each row: account, user, action, requester, reason, ticket, and the <strong>Payload</strong> (scroll right) showing exactly what will be done. <code>VERSION_CHECK</code> shows <code>STALE</code> if the account&rsquo;s settings changed after the request was made.</li>
+  <li>Tick <strong>Select</strong>, then <strong>Approve selected</strong>, or enter a <strong>Rejection reason</strong> and click <strong>Reject selected</strong>.</li>
+</ol>
+<ul>
+  <li>Requests you made yourself are flagged and will be refused.</li>
+  <li>Selecting more than 10 rows shows a reminder to confirm the customer reference before bulk approval.</li>
+  <li>For a CSV that creates roles, approve the <code>CREATE_ROLE</code> request <em>and</em> the user requests in the same batch. The user requests wait until the role exists. Rejecting a <code>CREATE_ROLE</code> request also cancels the user requests that need it.</li>
+  <li>A stale request is blocked when you try to approve it; ask the requester to submit it again.</li>
+</ul>
+
+<h2 id="accounts">9. Account registry</h2>
+<figure><img src="docs/user_guide/img/08_accounts_list.png" alt="Account registry table" /><figcaption>All registered accounts. An account can be used only after bootstrap, connectivity and a successful preflight.</figcaption></figure>
+<p>Select an account in <strong>Manage account</strong> to see its details.</p>
+<figure><img src="docs/user_guide/img/09_account_detail.png" alt="Account detail with status tiles, action buttons and settings form" /><figcaption>Account detail: status, run buttons and settings.</figcaption></figure>
+<h3>Status and actions</h3>
+<ul>
+  <li>Tiles show <strong>Bootstrap</strong> status, <strong>Enabled</strong>, <strong>Paused</strong> and the <strong>Registry version</strong>. <strong>Connection (read-only)</strong> shows the host, service user, execution role and key fingerprint; credentials are never shown.</li>
+  <li><strong>Run preflight</strong> checks the connection without changing anything. <strong>Reconcile now</strong> refreshes the inventory from the account. Both need Operate.</li>
+  <li><strong>Execute queue now</strong> runs approved work immediately instead of waiting for the next scheduled run. <strong>Pause account</strong> / <strong>Resume account</strong> stops or restarts all work for the account. Both need Approve.</li>
+</ul>
+<h3>Settings</h3>
+<p>Display name, approved email domains, protected users (never changed by the app), execution role and Enabled. Saving needs Privileged approve and <strong>invalidates pending approvals</strong> for the account, because they were checked against the old settings.</p>
+<h3>Role catalog</h3>
+<figure><img src="docs/user_guide/img/10_role_catalog.png" alt="Role catalog editor" /><figcaption>Role catalog: which roles CSV imports may grant in this account.</figcaption></figure>
+<ul>
+  <li><code>IS_DEFAULT_ELIGIBLE</code> &ndash; the role may be a user&rsquo;s default role.</li>
+  <li><code>APPROVAL_CLASS</code> &ndash; <code>STANDARD</code>, <code>ELEVATED</code> or <code>BLOCKED</code>. Blocked roles are rejected in CSVs.</li>
+  <li><code>IS_ACTIVE</code> &ndash; untick to stop a role from being granted. A CSV can never switch it back on.</li>
+  <li>Add a row at the bottom for a role that already exists in the managed account, then click <strong>Save role catalog</strong> (Privileged approve). Roles created from a CSV import are added automatically.</li>
+</ul>
+<div class="info">Saving the role catalog also invalidates pending approvals for the account.</div>
+
+<h2 id="internal">10. Internal admin access</h2>
+<p>For 84.51 employees who need ACCOUNTADMIN in a managed account. Employees must be on the approved roster. ACCOUNTADMIN is granted only after independent approval and verified MFA, and is never a default role.</p>
+<h3>Request</h3>
+<figure><img src="docs/user_guide/img/11_internal_request.png" alt="Internal admin access request form" /><figcaption>Request tab: employee, accounts, reason, ticket, review date and expiry.</figcaption></figure>
+<p>Choose the employee and one or more accounts (only enabled, unpaused accounts that run as ACCOUNTADMIN are listed). Reason and <strong>Expires</strong> are required. Click <strong>Request access</strong>.</p>
+<h3>Approve</h3>
+<figure><img src="docs/user_guide/img/12_internal_approve.png" alt="Pending internal access requests" /><figcaption>Approve tab: a different privileged approver approves each request.</figcaption></figure>
+<p>After approval the worker creates the admin&rsquo;s user. The ACCOUNTADMIN grant waits in <code>AWAITING_MFA</code> until the admin has enrolled in MFA.</p>
+<h3>Active grants</h3>
+<figure><img src="docs/user_guide/img/13_internal_active.png" alt="Active internal admin grants with revoke form" /><figcaption>Active grants: current access, its MFA evidence, and revocation.</figcaption></figure>
+<ul>
+  <li>Select a grant, choose <strong>Revoke ACCOUNTADMIN</strong> or <strong>Disable user</strong>, enter a reason and click <strong>Request</strong>. A privileged approver must approve it.</li>
+  <li>Revocation is refused if it would leave fewer than two human ACCOUNTADMIN users, unless <strong>Emergency override</strong> is on. Overrides are audited.</li>
+  <li>Grants waiting for MFA are counted below the form. After the admin enrolls, retry the blocked grant from <a href="#operations">Operations and health</a>.</li>
+</ul>
+<h3>Secure handoff</h3>
+<figure><img src="docs/user_guide/img/14_internal_handoff.png" alt="Secure handoff card for a password reset link" /><figcaption>Secure handoff: single-use password and MFA links waiting for delivery.</figcaption></figure>
+<ol>
+  <li>Switch on <strong>Reveal link</strong> only when you are ready to deliver it.</li>
+  <li>Send it through the approved channel.</li>
+  <li>Enter the <strong>Delivery channel</strong> and click <strong>Mark delivered</strong>. The link is erased immediately.</li>
+</ol>
+<div class="note">Links are single use and expire after 12 hours. Never paste them into tickets, chat channels or email threads that others can read.</div>
+
+<h2 id="workflows">11. Common tasks</h2>
+<h3>Onboard new customer users</h3>
+<ol>
+  <li><strong>Operator:</strong> <a href="#import">Import and review</a> &rarr; choose the account &rarr; upload the CSV &rarr; exclude rejected rows &rarr; confirm any new roles &rarr; enter reason and ticket &rarr; <em>Submit for approval</em>.</li>
+  <li><strong>Approver (a different person):</strong> <a href="#approvals">Approval queue</a> &rarr; review &rarr; <em>Approve selected</em>.</li>
+  <li>Wait for the next scheduled run, or click <em>Execute queue now</em> on the <a href="#accounts">Account registry</a>.</li>
+  <li>Check <a href="#operations">Operations and health</a> shows <code>SUCCEEDED</code>.</li>
+  <li><strong>Operator:</strong> request a <em>Password setup link</em> from the <a href="#inventory">User inventory</a>; after approval and execution, deliver it from <em>Secure handoff</em>.</li>
+  <li>After the user signs in and enrolls MFA, the next reconciliation (or <em>Reconcile now</em>) shows <code>MFA_EVIDENCE = ENROLLED</code>.</li>
+</ol>
+<h3>Onboard users with a role the account doesn&rsquo;t have yet</h3>
+<ol>
+  <li>Upload the CSV as above. Check the <a href="#new-roles">Roles to be created</a> list and tick the confirmation.</li>
+  <li>The approver approves the <code>CREATE_ROLE</code> request and the user requests from the same batch.</li>
+  <li>The worker creates the role first, then onboards the users with it.</li>
+  <li>Ask the account owner to grant the new role access to the data it needs.</li>
+</ol>
+<h3>Offboard a user</h3>
+<p><a href="#inventory">User inventory</a> &rarr; select the user &rarr; <em>Disable</em> &rarr; reason and ticket &rarr; request. After approval and execution, the inventory shows the user disabled and verified. For many users, upload a CSV with <code>DISABLE</code> rows instead.</p>
+<h3>Change a user&rsquo;s roles</h3>
+<p>Upload a CSV with <code>ADD_ROLES</code> (adds) or <code>SET_MANAGED_ROLES</code> (replaces the app-managed set). Roles granted outside the app are never removed.</p>
+<h3>A request failed</h3>
+<p>Open <a href="#operations">Operations and health</a>, select the operation, and read <strong>Steps</strong> for the error. Fix the cause, then <em>Retry selected</em> or <em>Cancel selected</em>. If an account keeps failing it pauses itself after five consecutive failures; fix the cause, run a preflight and then <em>Resume account</em>.</p>
+
+<h2 id="statuses">12. Status reference</h2>
+<h3>Operation status</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>PENDING_APPROVAL</code></td><td>Waiting for a different admin to approve</td></tr>
+<tr><td><code>QUEUED</code></td><td>Approved and waiting for the worker. Also used while a user request waits for a role to be created, and while a retry waits for its next attempt.</td></tr>
+<tr><td><code>RUNNING</code></td><td>The worker is executing it now</td></tr>
+<tr><td><code>SUCCEEDED</code></td><td>Done and verified by reading back the account</td></tr>
+<tr><td><code>FAILED</code></td><td>Snowflake returned an error, or retries ran out</td></tr>
+<tr><td><code>PARTIAL</code></td><td>Some steps completed; review the steps</td></tr>
+<tr><td><code>BLOCKED</code></td><td>Stopped by a safety check (stale approval, MFA not enrolled, protected user, a dependency failed&hellip;). Needs a person.</td></tr>
+<tr><td><code>CANCELLED</code></td><td>Rejected, cancelled, or superseded by a newer disable</td></tr>
+</tbody></table></div>
+<h3>Inventory values</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Value</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>MFA_EVIDENCE</code></td><td><code>ENROLLED</code>, <code>REQUIRED_NOT_YET_OBSERVED</code> (the user has not enrolled yet), <code>UNKNOWN</code> (not verified), <code>DRIFT</code> (an internal admin holds ACCOUNTADMIN without MFA)</td></tr>
+<tr><td><code>DRIFT_FLAGS</code></td><td>Differences between desired and observed state, for example <code>MISSING_DESIRED_ROLES</code>, <code>DISABLED_BUT_DESIRED_ENABLED</code>, <code>AUTH_POLICY_MISMATCH</code>, <code>CUSTOMER_HAS_ACCOUNTADMIN</code>. Drift is reported only; it is never repaired automatically.</td></tr>
+<tr><td><code>ONBOARDING_STATE</code></td><td><code>PROVISIONING</code> &rarr; <code>PROVISIONED_PENDING_HANDOFF</code> &rarr; <code>HANDOFF_ISSUED</code>, or <code>DISABLED</code></td></tr>
+<tr><td><code>IDENTITY_CLASS</code></td><td><code>CPG_CUSTOMER</code>, <code>INTERNAL_ADMIN</code> or <code>UNMANAGED</code></td></tr>
+</tbody></table></div>
+
+<h2 id="faq">13. Questions and problems</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>You see</th><th>What to do</th></tr></thead>
+<tbody>
+<tr><td>&ldquo;does not hold ACCOUNTADMIN in EIGHTY451&rdquo;</td><td>Ask for the ACCOUNTADMIN grant. New grants can take a while to be recognized.</td></tr>
+<tr><td>&ldquo;has no duties assigned&rdquo;</td><td>Ask the app owners to add you to the duty table.</td></tr>
+<tr><td>A button is greyed out</td><td>You don&rsquo;t have the duty for it on that account, or nothing is selected.</td></tr>
+<tr><td>Account missing from the Import page</td><td>Only enabled, unpaused accounts can receive imports. Check the <a href="#accounts">Account registry</a>.</td></tr>
+<tr><td><code>role_name: not in this account's role catalog</code></td><td>The role name is not valid (use uppercase letters, digits and underscores, starting with a letter).</td></tr>
+<tr><td><code>role_name: disabled or blocked in this account's role catalog</code></td><td>A privileged approver must re-activate the role in the catalog, or use a different role.</td></tr>
+<tr><td><code>default_role: not default-eligible</code> / <code>must be one of the user's requested roles</code></td><td>Pick a default-eligible role that is also listed in one of the user&rsquo;s rows.</td></tr>
+<tr><td>Submit refused: registry or role catalog changed</td><td>Upload the CSV again.</td></tr>
+<tr><td><code>BLOCKED: stale approval</code></td><td>Settings changed after approval. Submit the request again.</td></tr>
+<tr><td>User request stuck in <code>QUEUED</code> after a CSV with new roles</td><td>Approve the <code>CREATE_ROLE</code> request from the same batch.</td></tr>
+<tr><td><code>CREATE_ROLE</code> blocked: requires ACCOUNTADMIN execution role</td><td>The account runs with the restricted role. Ask a privileged approver to change the execution role, or have the role created manually and added to the catalog.</td></tr>
+<tr><td>Internal grant stays <code>AWAITING_MFA</code></td><td>The admin must enroll MFA; then retry the blocked grant from Operations and health.</td></tr>
+<tr><td>Account shows <em>paused: circuit breaker</em></td><td>Five failures in a row. Review the failed steps, fix the cause, run a preflight, then resume the account.</td></tr>
+</tbody></table></div>
+
+<footer>Prepared by Snowflake for 84.51&deg;. For installation and administration see <a href="deployment_guide.html">deployment_guide.html</a>. Screenshots use fictitious sample data.</footer>
+</body>
+</html>

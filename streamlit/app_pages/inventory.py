@@ -48,7 +48,6 @@ edited = st.data_editor(
         "LAST_VERIFIED_AT": st.column_config.DatetimeColumn("Last verified"),
     },
     key="inv_editor",
-    alt="Managed user inventory",
 )
 st.download_button("Download CSV", csv_safe(df.drop(columns=["select"])).to_csv(index=False),
                    file_name="user_inventory.csv", icon=":material/download:")

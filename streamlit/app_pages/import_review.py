@@ -34,8 +34,10 @@ except cv.CsvError as e:
 
 acct = query(f"SELECT APPROVED_EMAIL_DOMAINS, PROTECTED_USERS, SERVICE_USER FROM {CTL}.CUSTOMER_ACCOUNTS WHERE ACCOUNT_ID = ?",
              [account_id]).iloc[0]
-roles = query(f"SELECT ROLE_NAME, IS_DEFAULT_ELIGIBLE FROM {CTL}.ROLE_CATALOG WHERE ACCOUNT_ID = ? AND IS_ACTIVE "
-              "AND APPROVAL_CLASS <> 'BLOCKED'", [account_id])
+catalog = query(f"SELECT ROLE_NAME, IS_DEFAULT_ELIGIBLE, IS_ACTIVE, APPROVAL_CLASS FROM {CTL}.ROLE_CATALOG "
+                "WHERE ACCOUNT_ID = ?", [account_id])
+usable = catalog[catalog["IS_ACTIVE"].astype(bool) & (catalog["APPROVAL_CLASS"] != "BLOCKED")]
+disabled_roles = catalog.loc[~catalog.index.isin(usable.index), "ROLE_NAME"].tolist()
 blocked = query(f"SELECT ROLE_NAME FROM {CTL}.BLOCKED_ROLES")["ROLE_NAME"].tolist()
 existing = query(f"SELECT USERNAME, IS_MANAGED, IDENTITY_CLASS FROM {CTL}.USER_CONTROL WHERE ACCOUNT_ID = ?", [account_id])
 
@@ -47,7 +49,8 @@ def _arr(v):
 protected = _arr(acct.PROTECTED_USERS) + [acct.SERVICE_USER or ""]
 results = cv.validate(
     parsed,
-    allowed_roles=dict(zip(roles["ROLE_NAME"], roles["IS_DEFAULT_ELIGIBLE"])),
+    allowed_roles=dict(zip(usable["ROLE_NAME"], usable["IS_DEFAULT_ELIGIBLE"])),
+    disabled_roles=disabled_roles,
     blocked_roles=blocked,
     email_domains=_arr(acct.APPROVED_EMAIL_DOMAINS),
     protected_users=protected,
@@ -62,7 +65,8 @@ with st.container(horizontal=True):
     st.metric("Rejected", len(results) - valid, border=True)
     st.metric("Users", len({r["username"] for r in results}), border=True)
 
-df = pd.DataFrame([{**r, "findings": "; ".join(r["findings"]), "exclude": False} for r in results])
+df = pd.DataFrame([{**{k: v for k, v in r.items() if k not in ("notes", "creates_role")},
+                    "findings": "; ".join(r["findings"] + r["notes"]), "exclude": False} for r in results])
 st.caption("Rejected rows must be explicitly excluded before the batch can be submitted.")
 edited = st.data_editor(
     df,
@@ -74,7 +78,6 @@ edited = st.data_editor(
         "findings": st.column_config.TextColumn("Findings", width="large"),
     },
     key="import_editor",
-    alt="Validated CSV rows",
 )
 
 st.subheader("Impact preview")
@@ -86,11 +89,20 @@ with st.container(horizontal=True):
     st.metric("Re-enable", active[active.action == "REENABLE"].username.nunique(), border=True)
 
 unresolved = edited[~edited["is_valid"] & ~edited["exclude"]]
+to_create = cv.new_roles(results, edited.loc[edited["exclude"], "row_number"].tolist())
+ack = True
+if to_create:
+    st.subheader("Roles to be created")
+    st.caption("These roles are not in the account's role catalog. On approval they are created in the target "
+               "account with no privileges, granted to SYSADMIN, and added to the catalog as default-eligible.")
+    st.dataframe(pd.DataFrame({"role_name": to_create}), hide_index=True)
+    ack = st.checkbox(f"I confirm these {len(to_create)} role name(s) are correct and should be created",
+                      key="ack_new_roles")
 with st.form("submit_batch"):
     reason = st.text_input("Reason")
     ticket = st.text_input("Ticket / customer confirmation reference")
     submitted = st.form_submit_button("Submit for approval", icon=":material/send:", type="primary",
-                                      disabled=not unresolved.empty or active.empty)
+                                      disabled=not unresolved.empty or active.empty or not ack)
 if not unresolved.empty:
     st.warning(f"{len(unresolved)} rejected row(s) are not excluded.", icon=":material/warning:")
 
@@ -103,7 +115,7 @@ if submitted:
         orig = next(x for x in results if x["row_number"] == r["row_number"])
         rows.append({**orig, "is_excluded": bool(r["exclude"])})
     saved = command("SAVE_IMPORT", {"account_id": account_id, "file_name": upload.name,
-                                    "file_sha256": cv.file_sha256(data), "rows": rows,
+                                    "file_sha256": cv.file_sha256(data), "rows": rows, "new_roles": to_create,
                                     "reason": reason, "ticket": ticket})
     if not saved.get("ok"):
         show_result(saved, "")

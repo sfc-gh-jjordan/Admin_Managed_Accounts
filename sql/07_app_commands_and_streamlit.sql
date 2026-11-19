@@ -79,7 +79,7 @@ CREATE OR REPLACE STREAMLIT ACCT_ADMIN_DB.APP.MANAGED_ACCOUNTS_ADMIN
   -- container runtime, which ignores environment.yml.
   RUNTIME_NAME = 'SYSTEM$WAREHOUSE_RUNTIME'
   QUERY_WAREHOUSE = ACCT_ADMIN_WH
-  TITLE = 'Managed accounts admin'
+  TITLE = 'Managed Accounts Admin'
   COMMENT = 'User lifecycle admin for all managed Snowflake accounts';
 
 -- Only EIGHTY451 ACCOUNTADMIN holders may open the app (they must use the

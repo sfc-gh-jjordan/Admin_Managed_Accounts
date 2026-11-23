@@ -326,29 +326,53 @@ def cmd_request_user_action(s, actor, a):
     return {"operations": ids}
 
 
+def eligible_admin(s, username: str) -> Optional[dict]:
+    """A user is eligible when they hold ACCOUNTADMIN directly in EIGHTY451, are enabled, and are a PERSON.
+    ACCOUNT_USAGE has some latency, so very recent grants may take time to appear."""
+    rows = q(s, """SELECT u.NAME, u.EMAIL, u.FIRST_NAME, u.LAST_NAME
+                   FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS g
+                   JOIN SNOWFLAKE.ACCOUNT_USAGE.USERS u ON u.NAME = g.GRANTEE_NAME
+                   WHERE g.ROLE = 'ACCOUNTADMIN' AND g.DELETED_ON IS NULL AND u.DELETED_ON IS NULL
+                     AND u.DISABLED = FALSE AND (u.TYPE IS NULL OR u.TYPE = 'PERSON') AND u.NAME = ? LIMIT 1""", [username])
+    return rows[0] if rows else None
+
+
 def cmd_request_internal_access(s, actor, a):
-    """Create ADMIN_ACCOUNT_ACCESS + PROVISION and GRANT operations (privileged family)."""
-    for account_id in a["account_ids"]:
+    """Create ADMIN_ACCOUNT_ACCESS + PROVISION and GRANT operations (privileged family) for each
+    (EIGHTY451 ACCOUNTADMIN user, managed account) pair."""
+    usernames = [str(u).strip().upper() for u in _arr(a.get("usernames"))]
+    account_ids = _arr(a.get("account_ids"))
+    if not usernames or not account_ids or not a.get("reason") or not a.get("expires_at"):
+        raise Denied("users, accounts, reason and expiry are required")
+    for account_id in account_ids:
         require(s, actor, account(s, account_id)["ACCOUNT_ID"], "operate")
-    r = q(s, f"SELECT * FROM {CTL}.INTERNAL_ADMIN_ROSTER WHERE EMPLOYEE_ID = ?", [a["employee_id"]])
-    if not r or r[0]["ELIGIBILITY_STATUS"] != "ELIGIBLE" or not r[0]["EMAIL_VERIFIED"]:
-        raise Denied("employee not eligible on roster")
-    emp = r[0]
-    out = []
-    for account_id in a["account_ids"]:
-        acct = account(s, account_id)
-        access_id = q(s, "SELECT UUID_STRING() U")[0]["U"]
-        x(s, f"""INSERT INTO {CTL}.ADMIN_ACCOUNT_ACCESS (ACCESS_ID, EMPLOYEE_ID, ACCOUNT_ID, TARGET_USERNAME,
-                 REQUESTED_STATE, WORKFLOW_STATE, REASON, TICKET, REQUESTED_BY, REVIEW_BY, EXPIRES_AT)
-                 SELECT ?, ?, ?, ?, 'GRANTED', 'PENDING_APPROVAL', ?, ?, ?, TRY_TO_DATE(?), TRY_TO_TIMESTAMP_LTZ(?)""",
-          [access_id, emp["EMPLOYEE_ID"], account_id, emp["TARGET_USERNAME"], a.get("reason"), a.get("ticket"),
-           actor, a.get("review_by"), a.get("expires_at")])
-        p = {"employee_id": emp["EMPLOYEE_ID"], "username": emp["TARGET_USERNAME"]}
-        out.append(new_op(s, actor, acct, "PROVISION_INTERNAL_ADMIN", emp["TARGET_USERNAME"], p,
-                          family="PRIVILEGED", access_id=access_id, reason=a.get("reason"), ticket=a.get("ticket")))
-        out.append(new_op(s, actor, acct, "GRANT_ACCOUNTADMIN", emp["TARGET_USERNAME"], p,
-                          family="PRIVILEGED", access_id=access_id, reason=a.get("reason"), ticket=a.get("ticket")))
-    return {"operations": out}
+    people = {}
+    for u in usernames:
+        emp = eligible_admin(s, u)
+        if not emp:
+            raise Denied(f"{u} is not an enabled ACCOUNTADMIN user in EIGHTY451")
+        if not USER_RE.match(emp["NAME"].upper()):
+            raise Denied(f"{u} cannot be created as a managed-account username")
+        people[u] = emp
+    out, access_ids = [], []
+    for u, emp in people.items():
+        for account_id in account_ids:
+            acct = account(s, account_id)
+            access_id = q(s, "SELECT UUID_STRING() U")[0]["U"]
+            access_ids.append(access_id)
+            x(s, f"""INSERT INTO {CTL}.ADMIN_ACCOUNT_ACCESS (ACCESS_ID, EMPLOYEE_ID, ACCOUNT_ID, TARGET_USERNAME,
+                     CORPORATE_EMAIL, FIRST_NAME, LAST_NAME, REQUESTED_STATE, WORKFLOW_STATE, REASON, TICKET,
+                     REQUESTED_BY, REVIEW_BY, EXPIRES_AT)
+                     SELECT ?, ?, ?, ?, ?, ?, ?, 'GRANTED', 'PENDING_APPROVAL', ?, ?, ?, TRY_TO_DATE(?),
+                            TRY_TO_TIMESTAMP_LTZ(?)""",
+              [access_id, u, account_id, u, emp["EMAIL"], emp["FIRST_NAME"], emp["LAST_NAME"], a.get("reason"),
+               a.get("ticket"), actor, a.get("review_by"), a.get("expires_at")])
+            p = {"employee_id": u, "username": u}
+            out.append(new_op(s, actor, acct, "PROVISION_INTERNAL_ADMIN", u, p, family="PRIVILEGED",
+                              access_id=access_id, reason=a.get("reason"), ticket=a.get("ticket")))
+            out.append(new_op(s, actor, acct, "GRANT_ACCOUNTADMIN", u, p, family="PRIVILEGED",
+                              access_id=access_id, reason=a.get("reason"), ticket=a.get("ticket")))
+    return {"operations": out, "access_ids": access_ids}
 
 
 def cmd_approve_internal_access(s, actor, a):
@@ -492,9 +516,9 @@ def main(session, actor: str, command: str, args) -> dict:
     if fn is None:
         return {"ok": False, "error": "unknown command"}
     args = json.loads(args) if isinstance(args, str) else (args or {})
-    # expected = session.sql("SELECT CURRENT_ACCOUNT_NAME() N, CURRENT_ACCOUNT() L").collect()[0]
-    # if "EIGHTY451" not in (expected["N"], expected["L"]):
-    #     return {"ok": False, "error": "app may only run in EIGHTY451"}
+    expected = session.sql("SELECT CURRENT_ACCOUNT_NAME() N, CURRENT_ACCOUNT() L").collect()[0]
+    if "EIGHTY451" not in (expected["N"], expected["L"]):
+        return {"ok": False, "error": "app may only run in EIGHTY451"}
     try:
         return {"ok": True, "result": fn(session, actor.upper(), args)}
     except Denied as d:

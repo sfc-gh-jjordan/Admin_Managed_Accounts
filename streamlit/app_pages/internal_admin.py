@@ -3,23 +3,27 @@ import streamlit as st
 from lib.db import CTL, can, command, query, show_result
 
 st.title("Internal admin access")
-st.caption("84.51 ACCOUNTADMIN workflow: roster validation, independent approval, verified MFA, then a direct grant. "
+st.caption("84.51 ACCOUNTADMIN workflow: eligibility from central ACCOUNTADMIN holders, independent approval, verified MFA, then a direct grant. "
            "ACCOUNTADMIN is never a default role.")
 
 tab_request, tab_approve, tab_active, tab_handoff = st.tabs(["Request", "Approve", "Active grants", "Secure handoff"])
 
 with tab_request:
-    roster = query(f"""SELECT EMPLOYEE_ID, TARGET_USERNAME, CORPORATE_EMAIL, FIRST_NAME, LAST_NAME
-                       FROM {CTL}.INTERNAL_ADMIN_ROSTER WHERE ELIGIBILITY_STATUS = 'ELIGIBLE' AND EMAIL_VERIFIED
-                       ORDER BY LAST_NAME""")
+    elig = query("""SELECT u.NAME, u.EMAIL, u.FIRST_NAME, u.LAST_NAME
+                    FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS g
+                    JOIN SNOWFLAKE.ACCOUNT_USAGE.USERS u ON u.NAME = g.GRANTEE_NAME
+                    WHERE g.ROLE = 'ACCOUNTADMIN' AND g.DELETED_ON IS NULL AND u.DELETED_ON IS NULL
+                      AND u.DISABLED = FALSE AND (u.TYPE IS NULL OR u.TYPE = 'PERSON') ORDER BY u.NAME""")
     accts = query(f"SELECT ACCOUNT_ID, DISPLAY_NAME FROM {CTL}.CUSTOMER_ACCOUNTS WHERE IS_ENABLED AND NOT IS_PAUSED "
                   "AND EXEC_ROLE = 'ACCOUNTADMIN' ORDER BY ACCOUNT_ID")
-    if roster.empty:
-        st.info("No eligible employees on the roster.", icon=":material/info:")
+    st.caption("Eligible users are the enabled people who hold ACCOUNTADMIN in the central account. The same username "
+               "is created in each selected managed account.")
+    if elig.empty:
+        st.info("No eligible ACCOUNTADMIN users found.", icon=":material/info:")
     else:
-        labels = {r.EMPLOYEE_ID: f"{r.FIRST_NAME} {r.LAST_NAME} ({r.CORPORATE_EMAIL})" for r in roster.itertuples()}
+        labels = {r.NAME: f"{r.NAME} ({r.EMAIL or 'no email'})" for r in elig.itertuples()}
         with st.form("req_internal"):
-            emp = st.selectbox("Employee", list(labels), format_func=labels.get)
+            users = st.multiselect("Users", list(labels), format_func=labels.get)
             targets = st.multiselect("Accounts", accts["ACCOUNT_ID"].tolist())
             reason = st.text_input("Reason")
             ticket = st.text_input("Ticket")
@@ -29,19 +33,19 @@ with tab_request:
             go = st.form_submit_button("Request access", type="primary", icon=":material/send:",
                                        disabled=not can("operate"))
         if go:
-            if not (targets and reason and expires):
-                st.error("Accounts, reason and expiry are required.")
+            if not (users and targets and reason and expires):
+                st.error("Users, accounts, reason and expiry are required.")
             else:
                 show_result(command("REQUEST_INTERNAL_ACCESS", {
-                    "employee_id": emp, "account_ids": targets, "reason": reason, "ticket": ticket,
+                    "usernames": users, "account_ids": targets, "reason": reason, "ticket": ticket,
                     "review_by": str(review_by) if review_by else None, "expires_at": str(expires)}),
                     "Request created. A different privileged approver must approve it.")
 
 with tab_approve:
-    pend = query(f"""SELECT a.ACCESS_ID, a.ACCOUNT_ID, a.TARGET_USERNAME, r.CORPORATE_EMAIL, a.REASON, a.TICKET,
-                            a.REQUESTED_BY, a.CREATED_AT, a.EXPIRES_AT
-                     FROM {CTL}.ADMIN_ACCOUNT_ACCESS a JOIN {CTL}.INTERNAL_ADMIN_ROSTER r USING (EMPLOYEE_ID)
-                     WHERE a.WORKFLOW_STATE = 'PENDING_APPROVAL' ORDER BY a.CREATED_AT""")
+    pend = query(f"""SELECT ACCESS_ID, ACCOUNT_ID, TARGET_USERNAME, CORPORATE_EMAIL, REASON, TICKET,
+                            REQUESTED_BY, CREATED_AT, EXPIRES_AT
+                     FROM {CTL}.ADMIN_ACCOUNT_ACCESS
+                     WHERE WORKFLOW_STATE = 'PENDING_APPROVAL' ORDER BY CREATED_AT""")
     if pend.empty:
         st.success("Nothing pending.", icon=":material/done_all:")
     else:

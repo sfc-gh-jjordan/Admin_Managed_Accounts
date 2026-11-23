@@ -152,7 +152,7 @@ OPERATIONS = pd.DataFrame([
                  "roles": ["CPG_ANALYST"]}),
     _op(4, "CPG_BRIGHT", "LEE_KIM", "REENABLE_USER", "PENDING_APPROVAL", 3, reg=1, ticket="CHG-1039"),
     _op(5, "CPG_ACME", "J_ORTIZ_8451", "GRANT_ACCOUNTADMIN", "PENDING_APPROVAL", 2, family="PRIVILEGED",
-        payload={"employee_id": "E1001", "username": "J_ORTIZ_8451"}, ticket="SEC-220"),
+        payload={"employee_id": "J_ORTIZ_8451", "username": "J_ORTIZ_8451"}, ticket="SEC-220"),
     _op(6, "CPG_ACME", "MAYA_CHEN", "ISSUE_PASSWORD_LINK", "QUEUED", 0.8),
     _op(7, "CPG_ACME", "RAVI_PATEL", "ADD_ROLES", "FAILED", 6, attempts=5,
         err="SQL API 002003: Role 'CPG_WRITER' does not exist or not authorized."),
@@ -199,23 +199,22 @@ AUDIT = pd.DataFrame([
     ]
 ])
 
-ROSTER = pd.DataFrame([
-    dict(EMPLOYEE_ID="E1001", TARGET_USERNAME="J_ORTIZ_8451", CORPORATE_EMAIL="j.ortiz@8451.example", FIRST_NAME="Jo",
-         LAST_NAME="Ortiz", ELIGIBILITY_STATUS="ELIGIBLE", EMAIL_VERIFIED=True),
-    dict(EMPLOYEE_ID="E1002", TARGET_USERNAME="A_BAKER_8451", CORPORATE_EMAIL="a.baker@8451.example", FIRST_NAME="Alex",
-         LAST_NAME="Baker", ELIGIBILITY_STATUS="ELIGIBLE", EMAIL_VERIFIED=True),
+ELIGIBLE_ADMINS = pd.DataFrame([
+    dict(NAME="J_ORTIZ_8451", EMAIL="j.ortiz@8451.example", FIRST_NAME="Jo", LAST_NAME="Ortiz"),
+    dict(NAME="A_BAKER_8451", EMAIL="a.baker@8451.example", FIRST_NAME="Alex", LAST_NAME="Baker"),
+    dict(NAME="C_NGUYEN_8451", EMAIL="c.nguyen@8451.example", FIRST_NAME="Casey", LAST_NAME="Nguyen"),
 ])
 
 ACCESS = pd.DataFrame([
-    dict(ACCESS_ID="acc-01", EMPLOYEE_ID="E1002", ACCOUNT_ID="CPG_BRIGHT", TARGET_USERNAME="A_BAKER_8451",
+    dict(ACCESS_ID="acc-01", EMPLOYEE_ID="A_BAKER_8451", CORPORATE_EMAIL="a.baker@8451.example", ACCOUNT_ID="CPG_BRIGHT", TARGET_USERNAME="A_BAKER_8451",
          WORKFLOW_STATE="PENDING_APPROVAL", REASON="Quarterly support rotation", TICKET="SEC-231",
          REQUESTED_BY="ADMIN_ONE", APPROVED_BY=None, CREATED_AT=_t(4), REVIEW_BY=None, EXPIRES_AT=_t(-24 * 30),
          OBSERVED_ACCOUNTADMIN=None, OBSERVED_MFA=None, LAST_VERIFIED_AT=None),
-    dict(ACCESS_ID="acc-02", EMPLOYEE_ID="E1001", ACCOUNT_ID="CPG_ACME", TARGET_USERNAME="J_ORTIZ_8451",
+    dict(ACCESS_ID="acc-02", EMPLOYEE_ID="J_ORTIZ_8451", CORPORATE_EMAIL="j.ortiz@8451.example", ACCOUNT_ID="CPG_ACME", TARGET_USERNAME="J_ORTIZ_8451",
          WORKFLOW_STATE="GRANTED", REASON="Incident response", TICKET="SEC-220", REQUESTED_BY="ADMIN_ONE",
          APPROVED_BY="ADMIN_TWO", CREATED_AT=_t(200), REVIEW_BY=_t(-24 * 14), EXPIRES_AT=_t(-24 * 60),
          OBSERVED_ACCOUNTADMIN=True, OBSERVED_MFA="ENROLLED", LAST_VERIFIED_AT=_t(3)),
-    dict(ACCESS_ID="acc-03", EMPLOYEE_ID="E1001", ACCOUNT_ID="JJAWS_DEMO999", TARGET_USERNAME="J_ORTIZ_8451",
+    dict(ACCESS_ID="acc-03", EMPLOYEE_ID="J_ORTIZ_8451", CORPORATE_EMAIL="j.ortiz@8451.example", ACCOUNT_ID="JJAWS_DEMO999", TARGET_USERNAME="J_ORTIZ_8451",
          WORKFLOW_STATE="AWAITING_MFA", REASON="Demo support", TICKET="SEC-225", REQUESTED_BY="ADMIN_ONE",
          APPROVED_BY="ADMIN_TWO", CREATED_AT=_t(20), REVIEW_BY=None, EXPIRES_AT=_t(-24 * 7),
          OBSERVED_ACCOUNTADMIN=False, OBSERVED_MFA="REQUIRED_NOT_YET_OBSERVED", LAST_VERIFIED_AT=_t(1)),
@@ -229,7 +228,7 @@ HANDOFF = pd.DataFrame([
 
 TABLES = {"CUSTOMER_ACCOUNTS": ACCOUNTS, "USER_CONTROL": USERS, "ROLE_CATALOG": ROLE_CATALOG,
           "BLOCKED_ROLES": BLOCKED_ROLES, "ADMIN_AUTHORIZATIONS": AUTHZ, "OPERATIONS": OPERATIONS,
-          "OPERATION_STEPS": STEPS, "AUDIT_EVENTS": AUDIT, "INTERNAL_ADMIN_ROSTER": ROSTER,
+          "OPERATION_STEPS": STEPS, "AUDIT_EVENTS": AUDIT,
           "ADMIN_ACCOUNT_ACCESS": ACCESS, "V_HANDOFF_PENDING": HANDOFF, "V_USER_INVENTORY": USERS}
 
 
@@ -313,6 +312,8 @@ def _approvals(params: list) -> pd.DataFrame:
 
 def route(sql: str, params: list) -> pd.DataFrame:
     s = " ".join(sql.split())
+    if "GRANTS_TO_USERS" in s and "u.NAME" in s:
+        return _project(s.replace("u.", ""), ELIGIBLE_ADMINS)
     if "GRANTS_TO_USERS" in s:
         return pd.DataFrame({"1": [1]})
     if "V_OVERVIEW_METRICS" in s:
@@ -337,16 +338,14 @@ def route(sql: str, params: list) -> pd.DataFrame:
                    "LAST_PREFLIGHT_AT", "PREFLIGHT_OK"]].sort_values("CONSECUTIVE_FAILURES", ascending=False)
     if "AUDIT_EVENTS" in s:
         return AUDIT.sort_values("EVENT_TS", ascending=False).reset_index(drop=True)
-    if "ADMIN_ACCOUNT_ACCESS a JOIN" in s:
-        df = ACCESS[ACCESS.WORKFLOW_STATE == "PENDING_APPROVAL"].merge(ROSTER[["EMPLOYEE_ID", "CORPORATE_EMAIL"]])
+    if "ADMIN_ACCOUNT_ACCESS" in s and "= 'PENDING_APPROVAL'" in s:
+        df = ACCESS[ACCESS.WORKFLOW_STATE == "PENDING_APPROVAL"]
         return df[["ACCESS_ID", "ACCOUNT_ID", "TARGET_USERNAME", "CORPORATE_EMAIL", "REASON", "TICKET", "REQUESTED_BY",
                    "CREATED_AT", "EXPIRES_AT"]]
     if "ADMIN_ACCOUNT_ACCESS" in s:
         if "'AWAITING_MFA'" in s:
             return _project(s, ACCESS[ACCESS.WORKFLOW_STATE == "AWAITING_MFA"])
         return _project(s, ACCESS[~ACCESS.WORKFLOW_STATE.isin(["PENDING_APPROVAL", "REVOKED"])])
-    if "INTERNAL_ADMIN_ROSTER" in s:
-        return _project(s, ROSTER[(ROSTER.ELIGIBILITY_STATUS == "ELIGIBLE") & ROSTER.EMAIL_VERIFIED])
     if "ADMIN_AUTHORIZATIONS" in s:
         return _project(s, AUTHZ[(AUTHZ.ADMIN_USER == params[0]) & AUTHZ.IS_ACTIVE])
     if "EXEC_ROLE = 'ACCOUNTADMIN'" in s:

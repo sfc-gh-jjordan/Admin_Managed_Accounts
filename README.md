@@ -20,13 +20,14 @@ privileged approver) so one admin cannot both request and approve.
 ```
 sql/
   01_central_setup.sql               roles, warehouse, ACCT_ADMIN_DB, schemas, stages   (central, ACCOUNTADMIN)
-  02_control_tables.sql              registry, catalog, roster, queue, inventory, audit, views
+  02_control_tables.sql              registry, catalog, queue, inventory, audit, views
   03_org_account_discovery.sql       SHOW ACCOUNTS LIKE '<pattern>' -> CUSTOMER_ACCOUNTS (ORGADMIN)
   04_target_account_bootstrap.sql    run IN EACH managed account: service user, auth + network policies
   05_account_connectivity.sql        per-account secret, worker code upload, network rule, EAI, EXEC_<ID> proc
   06_worker_dispatch_and_tasks.sql   DISPATCH / RUN_ACCOUNT procs, tasks (resumed), preflight + enable
   07_app_commands_and_streamlit.sql  APP.COMMAND trusted proc, STREAMLIT object, admin seed
   08_migrate_csv_role_creation.sql   upgrade only: NEW_ROLES / DEPENDS_ON columns for CSV role creation
+  09_internal_admin_from_accountadmin.sql  upgrade only: retire INTERNAL_ADMIN_ROSTER; eligibility from ACCOUNTADMIN holders
 python/worker/
   sqlapi_client.py                   SQL API v2 client (key-pair JWT, async poll, partitions, retries)
   actions.py                         fixed SQL templates + identifier/literal validation

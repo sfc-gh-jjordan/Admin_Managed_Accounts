@@ -248,10 +248,11 @@
 <div class="info">Saving the role catalog also invalidates pending approvals for the account.</div>
 
 <h2 id="internal">10. Internal admin access</h2>
-<p>For 84.51 employees who need ACCOUNTADMIN in a managed account. Employees must be on the approved roster. ACCOUNTADMIN is granted only after independent approval and verified MFA, and is never a default role.</p>
+<p>For 84.51 employees who need ACCOUNTADMIN in a managed account. Eligible users are the enabled people who currently hold ACCOUNTADMIN in the central account, so there is no separate list to maintain. ACCOUNTADMIN is granted only after independent approval and verified MFA, and is never a default role.</p>
 <h3>Request</h3>
-<figure><img src="docs/user_guide/img/11_internal_request.png" alt="Internal admin access request form" /><figcaption>Request tab: employee, accounts, reason, ticket, review date and expiry.</figcaption></figure>
-<p>Choose the employee and one or more accounts (only enabled, unpaused accounts that run as ACCOUNTADMIN are listed). Reason and <strong>Expires</strong> are required. Click <strong>Request access</strong>.</p>
+<figure><img src="docs/user_guide/img/11_internal_request.png" alt="Internal admin access request form" /><figcaption>Request tab: users, accounts, reason, ticket, review date and expiry.</figcaption></figure>
+<p>Choose one or more eligible users and one or more accounts (only enabled, unpaused accounts that run as ACCOUNTADMIN are listed). The same username is created in each selected account. Users, accounts, reason and <strong>Expires</strong> are required. Click <strong>Request access</strong> to create one pending request for every user and account combination.</p>
+<p>Eligibility is read from the central account&rsquo;s usage data, which can lag by a few hours. A user who was just granted ACCOUNTADMIN may not appear straight away, and the request is refused if the user no longer holds the role.</p>
 <h3>Approve</h3>
 <figure><img src="docs/user_guide/img/12_internal_approve.png" alt="Pending internal access requests" /><figcaption>Approve tab: a different privileged approver approves each request.</figcaption></figure>
 <p>After approval the worker creates the admin&rsquo;s user. The ACCOUNTADMIN grant waits in <code>AWAITING_MFA</code> until the admin has enrolled in MFA.</p>

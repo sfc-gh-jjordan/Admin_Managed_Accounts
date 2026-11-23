@@ -16,6 +16,9 @@ USE ROLE ACCT_ADMIN_BOOTSTRAP;
 USE DATABASE ACCT_ADMIN_DB;
 USE WAREHOUSE ACCT_ADMIN_WH;
 
+-- Managed account to operate on (the only place it is set in this script)
+SET MANAGED_ACCOUNT_ID = 'CPG_ACME';
+
 -- ---------------------------------------------------------------------
 -- STEP A (manual, per account): store the private key in a SECRET.
 -- Run interactively in a worksheet; do not script with key in files.
@@ -144,7 +147,7 @@ $$;
 -- ****** IMPORTANT First upload the 3 worker Python modules to the code stage *****
 -- Update procedure parameter to given managed account
 -- ---------------------------------------------------------------------
-CALL ACCT_ADMIN_DB.WORKER.REGISTER_ACCOUNT_CONNECTIVITY('CPG_ACME');
+CALL ACCT_ADMIN_DB.WORKER.REGISTER_ACCOUNT_CONNECTIVITY($MANAGED_ACCOUNT_ID);
 
 --View objects bound to a specific managed account
 SHOW PROCEDURES LIKE 'EXEC_%' IN SCHEMA ACCT_ADMIN_DB.WORKER;
@@ -156,7 +159,7 @@ SHOW EXTERNAL ACCESS INTEGRATIONS LIKE 'ACCT_ADMIN_EAI_%';
 --Verify BOOTSTRAP_STATUS = 'CONNECTIVITY_READY'
 SELECT ACCOUNT_ID, ACCOUNT_LOCATOR, REGION, SQL_API_HOST, JWT_ACCOUNT_IDENTIFIER, BOOTSTRAP_STATUS, IS_ENABLED
 FROM ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS
-WHERE ACCOUNT_ID = 'CPG_ACME';
+WHERE ACCOUNT_ID = $MANAGED_ACCOUNT_ID;
 
 -- Next: run 06_worker_dispatch_and_tasks.sql, then run the preflight and
 -- enable steps at the end of that script.

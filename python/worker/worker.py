@@ -393,14 +393,16 @@ def h_enroll_mfa(session, r, acct, op, p):
 
 # ------------------------------------------------------- privileged family
 def _load_access(session, op) -> dict:
-    rows = q(session, f"""SELECT a.*, r.ELIGIBILITY_STATUS, r.EMAIL_VERIFIED, r.CORPORATE_EMAIL, r.FIRST_NAME, r.LAST_NAME
-                          FROM {CTL}.ADMIN_ACCOUNT_ACCESS a JOIN {CTL}.INTERNAL_ADMIN_ROSTER r USING (EMPLOYEE_ID)
-                          WHERE a.ACCESS_ID = ?""", [op["ACCESS_ID"]])
+    rows = q(session, f"SELECT * FROM {CTL}.ADMIN_ACCOUNT_ACCESS WHERE ACCESS_ID = ?", [op["ACCESS_ID"]])
     if not rows:
         raise Blocked("access request not found")
     a = rows[0]
-    if a["ELIGIBILITY_STATUS"] != "ELIGIBLE" or not a["EMAIL_VERIFIED"]:
-        raise Blocked("employee not eligible on roster")
+    if a["REQUESTED_STATE"] == "GRANTED" and not q(session, """
+            SELECT 1 FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS g
+            JOIN SNOWFLAKE.ACCOUNT_USAGE.USERS u ON u.NAME = g.GRANTEE_NAME
+            WHERE g.ROLE = 'ACCOUNTADMIN' AND g.DELETED_ON IS NULL AND u.DELETED_ON IS NULL
+              AND u.DISABLED = FALSE AND g.GRANTEE_NAME = ? LIMIT 1""", [a["EMPLOYEE_ID"]]):
+        raise Blocked("user no longer holds ACCOUNTADMIN in EIGHTY451")
     if not a["APPROVED_BY"] or a["APPROVED_BY"] == a["REQUESTED_BY"]:
         raise Blocked("independent approval missing")
     return a

@@ -171,6 +171,7 @@ cd Admin_Managed_Accounts</code></pre>
 <tbody>
 <tr><td><code>sql/01</code> &ndash; <code>sql/07</code></td><td>Setup scripts, run in numeric order</td></tr>
 <tr><td><code>sql/08_migrate_csv_role_creation.sql</code></td><td>Upgrade only: adds the columns for CSV role creation to an existing deployment</td></tr>
+<tr><td><code>sql/09_internal_admin_from_accountadmin.sql</code></td><td>Upgrade only: retires the internal admin roster table and adds the email and name columns to <code>ADMIN_ACCOUNT_ACCESS</code></td></tr>
 <tr><td><code>python/worker/</code></td><td>SQL API client, fixed action templates, worker engine</td></tr>
 <tr><td><code>python/app/</code></td><td>Trusted command procedure used by the app</td></tr>
 <tr><td><code>streamlit/</code></td><td>Streamlit application source</td></tr>
@@ -342,7 +343,7 @@ INSERT INTO ACCT_ADMIN_DB.CONTROL.ADMIN_AUTHORIZATIONS
 VALUES ('ADMIN_ONE', '*', TRUE, TRUE, FALSE, FALSE),
        ('ADMIN_TWO', '*', TRUE, TRUE, TRUE,  TRUE);</code></pre>
 <p>Use <code>'*'</code> for all accounts or an <code>ACCOUNT_ID</code> to scope a permission. Self-approval is always refused. Check the assignments with <code>SELECT * FROM ACCT_ADMIN_DB.CONTROL.ADMIN_AUTHORIZATIONS;</code>.</p>
-<p>For the internal ACCOUNTADMIN workflow, add eligible 84.51 employees to <code>CONTROL.INTERNAL_ADMIN_ROSTER</code> with <code>ELIGIBILITY_STATUS = 'ELIGIBLE'</code> and <code>EMAIL_VERIFIED = TRUE</code> after review.</p>
+<p>For the internal ACCOUNTADMIN workflow there is no roster to maintain. Eligible users are read live from <code>SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS</code> and <code>USERS</code>: enabled PERSON users with a direct ACCOUNTADMIN grant in EIGHTY451. A request records the user&rsquo;s email and name on <code>CONTROL.ADMIN_ACCOUNT_ACCESS</code>, and the worker re-checks the grant before provisioning. The username created in each managed account is the EIGHTY451 username.</p>
 <div class="info">ACCOUNTADMIN membership is checked against <code>SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS</code>, which has some latency. A newly granted administrator may need to wait before the app recognizes them. Only direct grants of ACCOUNTADMIN to the user are recognized.</div>
 
 <h2 id="verify">10. Verify and pilot</h2>
@@ -364,7 +365,7 @@ VALUES ('ADMIN_ONE', '*', TRUE, TRUE, FALSE, FALSE),
 <tr><td>4</td><td>Request a password setup link for the new user; approve; execute</td><td>Link appears under <em>Internal admin access &raquo; Secure handoff</em>; after <em>Mark delivered</em> it is erased</td></tr>
 <tr><td>5</td><td>User signs in, sets password, enrolls MFA; run reconcile</td><td>MFA evidence becomes <code>ENROLLED</code></td></tr>
 <tr><td>6</td><td>Disable the user from inventory; approve; execute</td><td>Remote user disabled and verified; desired and observed state both disabled</td></tr>
-<tr><td>7</td><td>Internal admin: request access for a roster employee; approve with a privileged approver; execute</td><td>User provisioned with a low-privilege default role; ACCOUNTADMIN grant blocked as <code>AWAITING_MFA</code> until MFA is enrolled, then granted on retry</td></tr>
+<tr><td>7</td><td>Internal admin: request access for an EIGHTY451 ACCOUNTADMIN user; approve with a different privileged approver; execute</td><td>User provisioned with a low-privilege default role; ACCOUNTADMIN grant blocked as <code>AWAITING_MFA</code> until MFA is enrolled, then granted on retry</td></tr>
 <tr><td>8</td><td>Revoke ACCOUNTADMIN for that admin</td><td>Revoked and verified; refused if fewer than two human ACCOUNTADMIN users would remain (unless emergency override)</td></tr>
 <tr><td>9</td><td>Pause the account, queue an operation</td><td>Operation stays queued; worker skips paused accounts</td></tr>
 <tr><td>10</td><td>Upload a CSV that onboards a user with a role not in the catalog (for example <code>DEMO_ANALYST_ROLE</code> as both role and default role); confirm the <em>Roles to be created</em> list; submit as admin A; approve both operations as admin B; execute</td><td><code>CREATE_ROLE</code> succeeds first: the role exists in the managed account, is granted to SYSADMIN, and appears in the role catalog as default-eligible. The onboarding then succeeds with that role as default.</td></tr>
@@ -396,6 +397,7 @@ ALTER TASK ACCT_ADMIN_DB.WORKER.DISPATCH_TASK      RESUME;</code></pre>
 <tr><td>Add a new organization account</td><td>Re-run <code>sql/03</code>, then section 6 for that account.</td></tr>
 <tr><td>Rotate an account&rsquo;s key</td><td>Generate a new pair; in the managed account <code>ALTER USER SVC_ACCT_ADMIN SET RSA_PUBLIC_KEY_2 = '...'</code>; replace the secret in EIGHTY451; update <code>PUBLIC_KEY_FP</code> and increment <code>SECRET_VERSION</code>; preflight; then unset the old key.</td></tr>
 <tr><td>Update worker or app code</td><td>Re-run the <code>PUT</code> commands from sections 6.3 and 8. Procedures pick up new code on the next call.</td></tr>
+<tr><td>Upgrade to ACCOUNTADMIN-based eligibility</td><td>See <a href="#roster-upgrade">13.4</a>: run <code>sql/09</code>, re-upload app and worker code, re-run <code>sql/06</code> and <code>sql/07</code>.</td></tr>
 <tr><td>Upgrade to CSV role creation</td><td>See <a href="#csv-roles-upgrade">13.3</a>: run <code>sql/08</code>, re-upload worker and app code, re-run <code>sql/07</code>.</td></tr>
 <tr><td>Grant data access to a role created from CSV</td><td>New roles have no privileges. In the managed account, grant the needed warehouse, database and schema privileges to the role, for example <code>GRANT USAGE ON WAREHOUSE ... TO ROLE DEMO_ANALYST_ROLE;</code>.</td></tr>
 <tr><td>Review roles created from CSV</td><td><code>SELECT ACCOUNT_ID, ROLE_NAME, REVIEW_NOTES, UPDATED_AT FROM ACCT_ADMIN_DB.CONTROL.ROLE_CATALOG WHERE REVIEW_NOTES LIKE 'auto-created%';</code></td></tr>
@@ -449,7 +451,18 @@ GRANT ROLE "DEMO_ANALYST_ROLE" TO ROLE "SYSADMIN";</code></pre>
 <pre><code>SHOW COLUMNS LIKE 'NEW_ROLES'  IN TABLE ACCT_ADMIN_DB.CONTROL.IMPORT_BATCHES;
 SHOW COLUMNS LIKE 'DEPENDS_ON' IN TABLE ACCT_ADMIN_DB.CONTROL.OPERATIONS;</code></pre></div>
 
-<h3>13.4 Test locally</h3>
+<h3 id="roster-upgrade">13.4 Upgrade to ACCOUNTADMIN-based eligibility</h3>
+<p>Fresh installs already include this change. For a deployment installed before it:</p>
+<ol>
+  <li><span class="where central">EIGHTY451</span> Run the migration as ACCOUNTADMIN. It is idempotent.
+    <pre><code>snow sql -c &lt;eighty451_connection&gt; -f sql/09_internal_admin_from_accountadmin.sql</code></pre>
+    It adds <code>CORPORATE_EMAIL</code>, <code>FIRST_NAME</code> and <code>LAST_NAME</code> to <code>ADMIN_ACCOUNT_ACCESS</code>, copies existing values from the old roster, then drops <code>INTERNAL_ADMIN_ROSTER</code> and <code>ROSTER_REQUESTS</code>. Existing access rows keep their old <code>EMPLOYEE_ID</code> values, so rows for people who are not ACCOUNTADMIN users with that same name are refused at provisioning; revoke and re-request them.</li>
+  <li><span class="where local">Workstation</span> Re-upload the worker code (section 6.3 <code>PUT</code> commands) and the app code (section 8 <code>PUT</code> commands).</li>
+  <li><span class="where central">EIGHTY451</span> Re-run <code>sql/06_worker_dispatch_and_tasks.sql</code> and <code>sql/07_app_commands_and_streamlit.sql</code> so the procedures load the new code.</li>
+</ol>
+<div class="ok"><strong>Check:</strong> <code>SHOW COLUMNS LIKE 'CORPORATE_EMAIL' IN TABLE ACCT_ADMIN_DB.CONTROL.ADMIN_ACCOUNT_ACCESS;</code> returns one row, and the Request tab lists your ACCOUNTADMIN users.</div>
+
+<h3>13.5 Test locally</h3>
 <p><span class="where local">Workstation</span> The repository includes a pytest suite that covers validation, the server-side role checks, the SQL templates and the worker handler, without connecting to Snowflake:</p>
 <pre><code>python -m pip install pytest pandas pyjwt cryptography requests
 python -m pytest tests -q</code></pre>

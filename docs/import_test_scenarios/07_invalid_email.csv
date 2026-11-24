@@ -1,0 +1,3 @@
+username,email,first_name,last_name,role_name,default_role,action
+TEST_BAD_DOMAIN,test.bad.domain@gmail.com,Test,Domain,CPG_ANALYST,CPG_ANALYST,ONBOARD
+TEST_BAD_FORMAT,not-an-email,Test,Format,CPG_ANALYST,CPG_ANALYST,ONBOARD

@@ -1,0 +1,5 @@
+username,email,first_name,last_name,role_name,default_role,action
+TEST_BLOCKED_ROLE,blocked.role@acmefoods.example,Test,Blocked,CPG_LEGACY_LOADER,CPG_LEGACY_LOADER,ONBOARD
+TEST_SYSTEM_ROLE,system.role@acmefoods.example,Test,System,ACCOUNTADMIN,ACCOUNTADMIN,ONBOARD
+TEST_NOT_ELIGIBLE,not.eligible@acmefoods.example,Test,Eligible,CPG_WRITER,CPG_WRITER,ONBOARD
+TEST_DEFAULT_MISMATCH,default.mismatch@acmefoods.example,Test,Mismatch,CPG_ANALYST,CPG_WRITER,ONBOARD

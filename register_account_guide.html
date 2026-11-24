@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="snowflake-source" content="cortex-agent-authored" />
+<title>84.51 Managed Accounts Admin – Registering a New Managed Account</title>
+<script type="application/json" id="snowflake-report-metadata">
+{
+  "generated": "2026-11-24",
+  "intent": "Step-by-step guide for registering one new managed account in an already-deployed Managed Accounts Admin app",
+  "dataSources": [
+    { "type": "file", "path": "sql/03_org_account_discovery.sql" },
+    { "type": "file", "path": "sql/04_target_account_bootstrap.sql" },
+    { "type": "file", "path": "sql/05_account_connectivity.sql" },
+    { "type": "file", "path": "sql/06_worker_dispatch_and_tasks.sql" }
+  ],
+  "producerNotes": "Mirrors deployment_guide.html sections 5-7.2 and 10.1. Update both when scripts change."
+}
+</script>
+<style>
+  :root { color-scheme: light dark; --accent: #29B5E8; --navy: light-dark(#11567F, #7cc8ec); }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+    max-width: 960px; width: 100%; margin: 0 auto; padding: clamp(16px, 4vw, 32px);
+    line-height: 1.55; color: light-dark(#1f2937, #e5e7eb); background: light-dark(#ffffff, #0f172a);
+  }
+  h1, h2, h3 { color: light-dark(#0f172a, #f1f5f9); line-height: 1.25; }
+  h2 { margin-top: 2.4em; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+  h3 { margin-top: 1.6em; color: var(--navy); }
+  a { color: light-dark(#2563eb, #60a5fa); }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: .9em; background: light-dark(#f1f5f9, #1e293b); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+  pre { background: light-dark(#f8fafc, #1e293b); border: 1px solid light-dark(#e2e8f0, #334155); padding: 12px; border-radius: 8px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  .hero { background: linear-gradient(135deg, #11567F, #29B5E8); color: #fff; border-radius: 12px; padding: clamp(20px, 4vw, 36px); }
+  .hero h1 { color: #fff; margin: 0 0 8px; }
+  .hero p { margin: 4px 0; opacity: .95; }
+  .badge { display: inline-block; background: rgba(255,255,255,.2); border: 1px solid rgba(255,255,255,.5); border-radius: 999px; padding: 3px 12px; font-size: .85em; margin-top: 10px; }
+  .note { border-left: 4px solid #f59e0b; background: light-dark(#fffbeb, #3a2e0b); padding: 10px 14px; border-radius: 6px; margin: 16px 0; }
+  .info { border-left: 4px solid var(--accent); background: light-dark(#eff9fd, #0c2a3a); padding: 10px 14px; border-radius: 6px; margin: 16px 0; }
+  .ok { border-left: 4px solid #16a34a; background: light-dark(#f0fdf4, #0b2a17); padding: 10px 14px; border-radius: 6px; margin: 16px 0; }
+  .table-wrap { overflow-x: auto; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .93em; }
+  th, td { border: 1px solid light-dark(#d1d5db, #374151); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: light-dark(#f3f4f6, #1f2937); }
+  nav.toc { columns: 2 220px; font-size: .93em; margin: 20px 0; }
+  nav.toc a { display: block; padding: 2px 0; }
+  img, svg { max-width: 100%; height: auto; }
+  ol li, ul li { margin: 4px 0; }
+  .where { display: inline-block; font-size: .8em; font-weight: 600; border-radius: 999px; padding: 2px 10px; margin-right: 6px; }
+  .central { background: light-dark(#dbeafe, #1e3a5f); color: light-dark(#1e40af, #bfdbfe); }
+  .target  { background: light-dark(#fce7f3, #4a1d36); color: light-dark(#9d174d, #fbcfe8); }
+  .local   { background: light-dark(#e5e7eb, #374151); color: light-dark(#374151, #e5e7eb); }
+  .checklist li { list-style: none; margin-left: -1.2em; }
+  .checklist li::before { content: "\2610  "; }
+  footer { margin-top: 3em; font-size: .85em; color: light-dark(#64748b, #94a3b8); border-top: 1px solid light-dark(#e2e8f0, #334155); padding-top: 12px; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>Registering a New Managed Account</h1>
+  <p>For an installation that is already running: connect one additional managed account to the Managed Accounts Admin app</p>
+  <span class="badge">Account registration guide &mdash; v1.0 &mdash; November 24, 2026</span>
+</div>
+
+<div class="info">This guide covers <strong>only</strong> adding an account to an existing deployment. For the full install (central setup, worker, tasks, Streamlit app, admin duties), see the <a href="deployment_guide.html">Deployment Guide</a>.</div>
+
+<h2 id="overview">Overview</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Step</th><th>Where</th><th>Script / action</th><th>Registry status afterward</th></tr></thead>
+<tbody>
+<tr><td><a href="#s0">0. Create the Snowflake account</a> (if it does not exist)</td><td><span class="where central">EIGHTY451</span> ORGADMIN</td><td><code>CREATE ACCOUNT</code></td><td>&ndash;</td></tr>
+<tr><td><a href="#s1">1. Discover and register</a></td><td><span class="where central">EIGHTY451</span></td><td><code>sql/03</code></td><td><code>NOT_BOOTSTRAPPED</code>, disabled</td></tr>
+<tr><td><a href="#s2">2. Generate a key pair</a></td><td><span class="where local">Workstation</span></td><td><code>openssl</code></td><td>&ndash;</td></tr>
+<tr><td><a href="#s3">3. Get the central egress IP ranges</a></td><td><span class="where central">EIGHTY451</span></td><td><code>SYSTEM$GET_SNOWFLAKE_EGRESS_IP_RANGES()</code></td><td>&ndash;</td></tr>
+<tr><td><a href="#s4">4. Bootstrap the managed account</a></td><td><span class="where target">Managed account</span></td><td><code>sql/04</code></td><td>&ndash;</td></tr>
+<tr><td><a href="#s5">5. Store the key and fingerprint</a></td><td><span class="where central">EIGHTY451</span></td><td><code>CREATE SECRET</code>, <code>UPDATE</code></td><td>&ndash;</td></tr>
+<tr><td><a href="#s6">6. Register connectivity</a></td><td><span class="where central">EIGHTY451</span></td><td><code>sql/05</code> procedure</td><td><code>CONNECTIVITY_READY</code></td></tr>
+<tr><td><a href="#s7">7. Preflight</a></td><td><span class="where central">EIGHTY451</span></td><td><code>RUN_ACCOUNT(..., 'PREFLIGHT')</code></td><td><code>VERIFIED</code></td></tr>
+<tr><td><a href="#s8">8. Enable and configure</a></td><td>App or SQL</td><td>Account registry page</td><td><code>VERIFIED</code>, enabled</td></tr>
+<tr><td><a href="#s9">9. Clean up and verify</a></td><td>All</td><td>Checklist</td><td>&ndash;</td></tr>
+</tbody></table></div>
+<div class="note"><strong>Before you start:</strong> set an <code>ACCOUNT_ID</code> variable in your head (or notes). It is the short key in <code>CONTROL.CUSTOMER_ACCOUNTS</code> (for example <code>CPG_ACME</code>) and it appears in the secret, EAI, and worker procedure names. Use a <strong>distinct key pair per account</strong>. Nothing can be executed against the account until it passes preflight and is enabled.</div>
+
+<h3>Prerequisites</h3>
+<ul>
+  <li>The app is already deployed (scripts 01&ndash;07 run, tasks created).</li>
+  <li>The worker code (<code>sqlapi_client.py</code>, <code>actions.py</code>, <code>worker.py</code>) is already on <code>ACCT_ADMIN_DB.WORKER.CODE_STAGE</code>. Check with <code>LIST @ACCT_ADMIN_DB.WORKER.CODE_STAGE;</code>. If it is empty, upload the three files first (see <a href="deployment_guide.html#onboard-account">Deployment Guide 6.3</a>).</li>
+  <li>A user with <code>ORGADMIN</code> (or <code>GLOBALORGADMIN</code>) and the <code>ACCT_ADMIN_OWNER</code> role for step 1; <code>ACCT_ADMIN_BOOTSTRAP</code> for steps 5&ndash;6; <code>ACCT_ADMIN_WORKER</code> for step 7.</li>
+  <li><code>ACCOUNTADMIN</code> in the new managed account (or a delegate), with an approved change record.</li>
+  <li><code>openssl</code> on your workstation.</li>
+  <li>Network path from EIGHTY451 to the new account (public HTTPS, or confirm Private Link / account-level network policy allowances first).</li>
+</ul>
+
+<h2 id="s0">0. Create the Snowflake account (only if it does not exist yet)</h2>
+<p><span class="where central">EIGHTY451</span> Skip this step if the account is already in your organization.</p>
+<pre><code>USE ROLE ORGADMIN;
+CREATE ACCOUNT EIGHTY451_ACME_EXT
+  ADMIN_NAME = &lt;admin_user&gt;
+  ADMIN_RSA_PUBLIC_KEY = '&lt;key&gt;'   -- or ADMIN_PASSWORD, per your standard
+  EMAIL = '&lt;admin_email&gt;'
+  EDITION = ENTERPRISE
+  REGION = &lt;snowflake_region&gt;;</code></pre>
+<div class="note"><strong>Naming matters.</strong> Discovery (step 1) only picks up accounts that match the <code>SHOW ACCOUNTS LIKE</code> pattern in <code>sql/03</code> (default <code>'EIGHTY451%_EXT'</code>). Name the account to match, or edit the pattern. The registry <code>ACCOUNT_ID</code> is derived from the account name (uppercased, non-alphanumerics replaced by <code>_</code>).</div>
+
+<h2 id="s1">1. Discover and register the account</h2>
+<p><span class="where central">EIGHTY451</span> Run <code>sql/03_org_account_discovery.sql</code> as a user holding both <code>ORGADMIN</code> and <code>ACCT_ADMIN_OWNER</code> (the script runs <code>USE SECONDARY ROLES ALL</code>).</p>
+<p>It lists accounts matching the pattern, excludes EIGHTY451 itself, and merges them into <code>CONTROL.CUSTOMER_ACCOUNTS</code>. The new account is inserted with:</p>
+<ul>
+  <li><code>IS_ENABLED = FALSE</code> and <code>BOOTSTRAP_STATUS = 'NOT_BOOTSTRAPPED'</code></li>
+  <li>Derived <code>SQL_API_HOST</code> (lowercase, <code>_</code> &rarr; <code>-</code>) and <code>JWT_ACCOUNT_IDENTIFIER</code> (<code>ORG-ACCOUNT</code>, uppercase)</li>
+  <li>Pre-filled <code>SECRET_NAME</code>, <code>WORKER_PROCEDURE</code>, <code>EAI_NAME</code> following the naming convention</li>
+</ul>
+<p>Existing accounts are only touched for descriptive fields, so re-running is safe.</p>
+<div class="ok"><strong>Check:</strong>
+<pre><code>SELECT ACCOUNT_ID, ACCOUNT_LOCATOR, REGION, SQL_API_HOST, JWT_ACCOUNT_IDENTIFIER, BOOTSTRAP_STATUS, IS_ENABLED
+FROM ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS
+WHERE BOOTSTRAP_STATUS = 'NOT_BOOTSTRAPPED';   -- your new account is listed</code></pre>
+Note the <code>ACCOUNT_ID</code>; it is used in every step below. Correct <code>DISPLAY_NAME</code> if needed.</div>
+
+<h2 id="s2">2. Generate a key pair</h2>
+<p><span class="where local">Workstation</span></p>
+<pre><code>ACCT=CPG_ACME   # the ACCOUNT_ID from step 1
+openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out sqlapi_${ACCT}.p8 -nocrypt
+openssl rsa -in sqlapi_${ACCT}.p8 -pubout -out sqlapi_${ACCT}.pub</code></pre>
+<div class="note">The <code>.p8</code> file is a credential. It goes only into the Snowflake secret in step 5; delete it from the workstation afterward. Never commit it to source control or paste it into a chat or ticket.</div>
+
+<h2 id="s3">3. Get the central egress IP ranges</h2>
+<p><span class="where central">EIGHTY451</span> The managed account only accepts the service user from EIGHTY451&rsquo;s egress addresses.</p>
+<pre><code>SELECT value:"ipv4_prefix"::VARCHAR  AS ip_cidr_range,
+       value:"effective"::TIMESTAMP  AS effective_date,
+       value:"expires"::TIMESTAMP    AS expiration_date
+FROM TABLE(FLATTEN(INPUT => PARSE_JSON(SYSTEM$GET_SNOWFLAKE_EGRESS_IP_RANGES())));</code></pre>
+<p>Copy the <code>ip_cidr_range</code> values as a quoted, comma-separated list, for example <code>'20.1.2.0/28', '20.1.3.0/28'</code>.</p>
+
+<h2 id="s4">4. Bootstrap the managed account</h2>
+<p><span class="where target">Managed account</span> Sign in to the <strong>new</strong> account as <code>ACCOUNTADMIN</code>. Confirm with <code>SELECT CURRENT_ACCOUNT();</code> that you are <strong>not</strong> in EIGHTY451.</p>
+<p>Open <code>sql/04_target_account_bootstrap.sql</code> and make two edits before running:</p>
+<ol>
+  <li>Replace <code>&lt;&lt;PASTE PUBLIC KEY BODY WITHOUT BEGIN/END LINES&gt;&gt;</code> with the body of <code>sqlapi_${ACCT}.pub</code> (no <code>BEGIN</code>/<code>END</code> lines, no line breaks).</li>
+  <li>Replace <code>&lt;&lt;central egress CIDRs&gt;&gt;</code> with the list from step 3.</li>
+</ol>
+<p>Review the output of <code>SHOW AUTHENTICATION POLICIES ON ACCOUNT;</code> (never weaken a stronger existing policy), then run the script. It creates:</p>
+<ul>
+  <li>Database <code>ADMIN_POLICIES</code> with authentication policies <code>CPG_HUMAN_MFA_V1</code>, <code>INTERNAL_ADMIN_MFA_V1</code> (password + required MFA) and <code>SQLAPI_SERVICE_V1</code> (key pair only).</li>
+  <li>Network rule <code>CENTRAL_EGRESS</code> and network policy <code>SQLAPI_SERVICE_NP</code>, attached to the service user.</li>
+  <li>Service user <code>SVC_ACCT_ADMIN</code> (<code>TYPE = SERVICE</code>) with <code>ACCOUNTADMIN</code> and the optional <code>ACCT_USER_ADMIN</code> role.</li>
+</ul>
+<div class="note"><code>CREATE NETWORK RULE</code> and <code>CREATE NETWORK POLICY</code> in this script have no <code>IF NOT EXISTS</code>. Run it once per account; a second full run fails at that point.</div>
+<p>Record from the final output:</p>
+<ul>
+  <li><code>RSA_PUBLIC_KEY_FP</code> from <code>DESC USER SVC_ACCT_ADMIN;</code> (starts with <code>SHA256:</code>).</li>
+  <li><code>CURRENT_ACCOUNT()</code> &ndash; must equal the <code>ACCOUNT_LOCATOR</code> in the registry.</li>
+</ul>
+<p>The script does not pre-create customer roles (section 6 is commented out). Either create them now and add them to the role catalog in step 8, or let a CSV import create them on approval (requires <code>EXEC_ROLE = ACCOUNTADMIN</code>).</p>
+
+<h2 id="s5">5. Store the private key and fingerprint</h2>
+<p><span class="where central">EIGHTY451</span> In a worksheet, as <code>ACCT_ADMIN_BOOTSTRAP</code>. Replace <code>CPG_ACME</code> in the secret name and the <code>WHERE</code> clause with your <code>ACCOUNT_ID</code>.</p>
+<pre><code>USE ROLE ACCT_ADMIN_BOOTSTRAP;
+USE DATABASE ACCT_ADMIN_DB;
+
+CREATE OR REPLACE SECRET ACCT_ADMIN_DB.SECRETS.SQLAPI_KEY_CPG_ACME
+  TYPE = GENERIC_STRING
+  SECRET_STRING = '-----BEGIN PRIVATE KEY-----
+...contents of sqlapi_CPG_ACME.p8...
+-----END PRIVATE KEY-----'
+  COMMENT = 'SQL API private key for CPG_ACME (v1)';
+
+UPDATE ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS
+   SET PUBLIC_KEY_FP    = 'SHA256:...from step 4...',
+       SECRET_VERSION   = 1,
+       REGISTRY_VERSION = REGISTRY_VERSION + 1,
+       UPDATED_AT       = CURRENT_TIMESTAMP()
+ WHERE ACCOUNT_ID = 'CPG_ACME';</code></pre>
+<div class="ok"><strong>Now delete the key files from your workstation:</strong> <code>rm sqlapi_${ACCT}.p8</code> (keep the <code>.pub</code> if you wish; it is not secret).</div>
+
+<h2 id="s6">6. Register connectivity</h2>
+<p><span class="where central">EIGHTY451</span> The procedure already exists from the original install, so you only call it. In <code>sql/05_account_connectivity.sql</code> you can instead set <code>MANAGED_ACCOUNT_ID</code> and run STEP C, but do not re-run the script unnecessarily.</p>
+<pre><code>USE ROLE ACCT_ADMIN_BOOTSTRAP;
+CALL ACCT_ADMIN_DB.WORKER.REGISTER_ACCOUNT_CONNECTIVITY('CPG_ACME');</code></pre>
+<p>For this account only, it creates a network rule allowing just its SQL API host, an external access integration bound to that rule and secret, the worker procedure <code>WORKER.EXEC_&lt;ACCOUNT_ID&gt;</code>, and the grants to <code>ACCT_ADMIN_WORKER</code>. The status becomes <code>CONNECTIVITY_READY</code>.</p>
+<div class="ok"><strong>Check:</strong>
+<pre><code>SHOW PROCEDURES LIKE 'EXEC_CPG_ACME' IN SCHEMA ACCT_ADMIN_DB.WORKER;
+SHOW EXTERNAL ACCESS INTEGRATIONS LIKE 'ACCT_ADMIN_EAI_CPG_ACME';
+
+SELECT ACCOUNT_ID, BOOTSTRAP_STATUS, IS_ENABLED
+FROM ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS
+WHERE ACCOUNT_ID = 'CPG_ACME';   -- expect CONNECTIVITY_READY</code></pre></div>
+<div class="note">If the call fails with <code>sqlapi_client.py</code> not found, the worker code is missing from <code>CODE_STAGE</code> or was uploaded compressed. Re-upload with <code>AUTO_COMPRESS=FALSE</code> to the stage root and retry.</div>
+
+<h2 id="s7">7. Run the preflight</h2>
+<p><span class="where central">EIGHTY451</span> The preflight signs in to the managed account and makes <strong>no changes</strong>. It confirms the locator, service user, and execution role match the registry.</p>
+<pre><code>USE ROLE ACCT_ADMIN_WORKER;
+CALL ACCT_ADMIN_DB.WORKER.RUN_ACCOUNT('CPG_ACME', 'PREFLIGHT');</code></pre>
+<div class="ok"><strong>Expected:</strong> the result contains <code>"ok": true</code> and <code>BOOTSTRAP_STATUS</code> becomes <code>VERIFIED</code>. If it fails, see <a href="#trouble">Troubleshooting</a>.</div>
+<p>You can also run the preflight later from the app: <strong>Account registry</strong> &rarr; select the account &rarr; <strong>Run preflight</strong>.</p>
+
+<h2 id="s8">8. Enable and configure the account</h2>
+<p>Only after a successful preflight. Either run SQL:</p>
+<pre><code>UPDATE ACCT_ADMIN_DB.CONTROL.CUSTOMER_ACCOUNTS
+   SET IS_ENABLED = TRUE
+ WHERE ACCOUNT_ID = 'CPG_ACME' AND BOOTSTRAP_STATUS = 'VERIFIED';</code></pre>
+<p>or use the app. On the <strong>Account registry</strong> page, select the account and:</p>
+<ol>
+  <li>Set the <strong>Execution role</strong>: <code>ACCOUNTADMIN</code> (needed for CSV-created roles and internal admin grants) or <code>ACCT_USER_ADMIN</code> (least privilege).</li>
+  <li>Set <strong>approved email domains</strong> and <strong>protected users</strong>.</li>
+  <li>Turn <strong>Enabled</strong> on and save.</li>
+  <li>Add allowed roles to the <strong>role catalog</strong> (they must already exist in the managed account), or plan to let a CSV import create them.</li>
+  <li>Click <strong>Reconcile now</strong> to load the current user population as unmanaged inventory.</li>
+</ol>
+<div class="info">Scheduled tasks (<code>DISPATCH_TASK</code>, <code>RECONCILE_TASK</code>) pick up the account automatically once it is <code>VERIFIED</code>, enabled, and not paused. No task changes are needed. To assign who can operate or approve for this account, add rows to <code>ADMIN_AUTHORIZATIONS</code> as described in <a href="deployment_guide.html#admins">Deployment Guide section 9</a>.</div>
+
+<h2 id="s9">9. Clean up and verify</h2>
+<ul class="checklist">
+  <li><code>sqlapi_&lt;ACCOUNT_ID&gt;.p8</code> deleted from the workstation; no private key in source control or query history.</li>
+  <li>Registry row shows <code>BOOTSTRAP_STATUS = VERIFIED</code>, <code>IS_ENABLED = TRUE</code>, <code>PUBLIC_KEY_FP</code> matching <code>DESC USER SVC_ACCT_ADMIN</code> in the managed account.</li>
+  <li>Account locator in the registry matches <code>CURRENT_ACCOUNT()</code> in the managed account.</li>
+  <li>Execution role, approved email domains, and protected users configured.</li>
+  <li>Role catalog populated (or CSV role creation understood and approved).</li>
+  <li>First reconcile completed and inventory is visible in the app.</li>
+  <li>Duties assigned in <code>ADMIN_AUTHORIZATIONS</code> for this account.</li>
+  <li>CIDR expiry dates from step 3 noted for periodic review of <code>CENTRAL_EGRESS</code>.</li>
+</ul>
+
+<h2 id="trouble">Troubleshooting</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Symptom</th><th>Likely cause</th><th>Resolution</th></tr></thead>
+<tbody>
+<tr><td>New account not in registry after step 1</td><td>Name does not match the <code>SHOW ACCOUNTS LIKE</code> pattern, or the role cannot see org accounts</td><td>Adjust the pattern in <code>sql/03</code>; use <code>ORGADMIN</code> with <code>ACCT_ADMIN_OWNER</code> as a secondary role.</td></tr>
+<tr><td>Step 4 fails on the network rule</td><td><code>&lt;&lt;central egress CIDRs&gt;&gt;</code> placeholder left in, or the object already exists from a prior run</td><td>Fill the CIDRs; drop and recreate the rule/policy if re-running.</td></tr>
+<tr><td>Step 4 fails creating the user</td><td>Malformed public key (line breaks, BEGIN/END lines, EC key)</td><td>Paste the single-line RSA public key body.</td></tr>
+<tr><td><code>REGISTER_ACCOUNT_CONNECTIVITY</code>: &ldquo;Invalid account id or SQL API host&rdquo;</td><td>Wrong <code>ACCOUNT_ID</code> or host not in registry</td><td>Check the row in <code>CUSTOMER_ACCOUNTS</code>.</td></tr>
+<tr><td><code>sqlapi_client.py</code> not found</td><td>Worker code not on <code>CODE_STAGE</code> or compressed</td><td>Re-upload with <code>AUTO_COMPRESS=FALSE</code>.</td></tr>
+<tr><td>Preflight HTTP 401 / JWT invalid</td><td>Fingerprint or key mismatch, or wrong JWT identifier</td><td>Compare <code>DESC USER SVC_ACCT_ADMIN</code> with <code>PUBLIC_KEY_FP</code>; confirm <code>JWT_ACCOUNT_IDENTIFIER</code> is uppercase <code>ORG-ACCOUNT</code>; recreate the secret with the correct <code>.p8</code>.</td></tr>
+<tr><td>Preflight times out or is refused</td><td><code>CENTRAL_EGRESS</code> CIDRs wrong or expired, or an account-level network policy / Private Link blocks EIGHTY451</td><td>Re-run step 3 and update the rule in the managed account; review account-level policies.</td></tr>
+<tr><td>Preflight identity mismatch</td><td>Host points to another account, or execution role not granted to <code>SVC_ACCT_ADMIN</code></td><td>Verify <code>SQL_API_HOST</code>, <code>EXPECTED_ACCOUNT_LOCATOR</code>, and grants.</td></tr>
+<tr><td>Cannot enable the account</td><td>Status is not <code>VERIFIED</code></td><td>Complete a successful preflight first.</td></tr>
+</tbody></table></div>
+
+<footer>Account registration guide v1.0 &mdash; derived from <code>sql/03</code>&ndash;<code>06</code>. See also the <a href="deployment_guide.html">Deployment Guide</a>.</footer>
+</body>
+</html>

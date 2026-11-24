@@ -1,0 +1,5 @@
+username,email,first_name,last_name,role_name,default_role,action
+TEST_CONFLICT_USER,conflict.user@acmefoods.example,Test,Conflict,CPG_ANALYST,CPG_ANALYST,ONBOARD
+TEST_CONFLICT_USER,other.user@acmefoods.example,Test,Conflict,ACME_PROMO_ANALYST,CPG_ANALYST,ONBOARD
+test_case_user,case.user@acmefoods.example,Test,Case,CPG_ANALYST,CPG_ANALYST,ONBOARD
+TEST_CASE_USER,case.user@acmefoods.example,Test,Case,ACME_PROMO_ANALYST,CPG_ANALYST,ONBOARD

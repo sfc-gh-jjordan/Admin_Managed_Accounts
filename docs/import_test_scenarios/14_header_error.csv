@@ -1,0 +1,2 @@
+user,email,first_name,last_name,role,default,action
+TEST_HEADER_USER,header.user@acmefoods.example,Test,Header,CPG_ANALYST,CPG_ANALYST,ONBOARD

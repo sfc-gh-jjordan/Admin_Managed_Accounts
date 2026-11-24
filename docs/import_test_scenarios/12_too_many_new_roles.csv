@@ -1,0 +1,12 @@
+username,email,first_name,last_name,role_name,default_role,action
+TEST_NEWROLE_01,newrole01@acmefoods.example,Test,One,ACME_NEW_ROLE_01,ACME_NEW_ROLE_01,ONBOARD
+TEST_NEWROLE_02,newrole02@acmefoods.example,Test,Two,ACME_NEW_ROLE_02,ACME_NEW_ROLE_02,ONBOARD
+TEST_NEWROLE_03,newrole03@acmefoods.example,Test,Three,ACME_NEW_ROLE_03,ACME_NEW_ROLE_03,ONBOARD
+TEST_NEWROLE_04,newrole04@acmefoods.example,Test,Four,ACME_NEW_ROLE_04,ACME_NEW_ROLE_04,ONBOARD
+TEST_NEWROLE_05,newrole05@acmefoods.example,Test,Five,ACME_NEW_ROLE_05,ACME_NEW_ROLE_05,ONBOARD
+TEST_NEWROLE_06,newrole06@acmefoods.example,Test,Six,ACME_NEW_ROLE_06,ACME_NEW_ROLE_06,ONBOARD
+TEST_NEWROLE_07,newrole07@acmefoods.example,Test,Seven,ACME_NEW_ROLE_07,ACME_NEW_ROLE_07,ONBOARD
+TEST_NEWROLE_08,newrole08@acmefoods.example,Test,Eight,ACME_NEW_ROLE_08,ACME_NEW_ROLE_08,ONBOARD
+TEST_NEWROLE_09,newrole09@acmefoods.example,Test,Nine,ACME_NEW_ROLE_09,ACME_NEW_ROLE_09,ONBOARD
+TEST_NEWROLE_10,newrole10@acmefoods.example,Test,Ten,ACME_NEW_ROLE_10,ACME_NEW_ROLE_10,ONBOARD
+TEST_NEWROLE_11,newrole11@acmefoods.example,Test,Eleven,ACME_NEW_ROLE_11,ACME_NEW_ROLE_11,ONBOARD

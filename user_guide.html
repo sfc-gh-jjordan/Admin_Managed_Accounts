@@ -27,7 +27,8 @@
     { "id": "internal", "title": "Internal admin access" },
     { "id": "workflows", "title": "Common tasks" },
     { "id": "statuses", "title": "Status reference" },
-    { "id": "faq", "title": "Questions and problems" }
+    { "id": "faq", "title": "Questions and problems" },
+    { "id": "roles", "title": "Roles and identities used by the app" }
   ],
   "producerNotes": "Screenshots were captured from a local run of the app in mock mode (ACCT_ADMIN_MOCK=1) using the fictitious sample data in streamlit/lib/mock_data.py. Re-capture them when page layouts change."
 }
@@ -92,6 +93,7 @@
   <a href="#workflows">11. Common tasks</a>
   <a href="#statuses">12. Status reference</a>
   <a href="#faq">13. Questions and problems</a>
+  <a href="#roles">14. Roles and identities used by the app</a>
 </nav>
 
 <h2 id="start">1. Before you start</h2>
@@ -338,6 +340,43 @@
 <tr><td>Internal grant stays <code>AWAITING_MFA</code></td><td>The admin must enroll MFA; then retry the blocked grant from Operations and health.</td></tr>
 <tr><td>Account shows <em>paused: circuit breaker</em></td><td>Five failures in a row. Review the failed steps, fix the cause, run a preflight, then resume the account.</td></tr>
 </tbody></table></div>
+
+<h2 id="roles">14. Roles and identities used by the app</h2>
+<p>You work in the app as your own <code>ACCOUNTADMIN</code> role, but changes are made by other roles behind it. This section explains which role does what, so you know what each step can and cannot do.</p>
+
+<h3>14.1 In EIGHTY451 (central account)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Layer</th><th>Role</th><th>How it works</th></tr></thead>
+<tbody>
+<tr><td>Opening the app</td><td><code>ACCOUNTADMIN</code></td><td>Only <code>ACCOUNTADMIN</code> has <code>USAGE</code> on the Streamlit app, so you must use that role in Snowsight. <code>ACCT_ADMIN_VIEWER</code> does not have it. The session runs as the signed-in user.</td></tr>
+<tr><td>What you may do inside the app</td><td>None (a table, not a role)</td><td>Your duties (viewer, operator, approver, privileged approver) are rows in <code>CONTROL.ADMIN_AUTHORIZATIONS</code>, not Snowflake roles. See <a href="#duties">section 2</a>.</td></tr>
+<tr><td>Writing requests, approvals and settings</td><td><code>ACCT_ADMIN_OWNER</code></td><td>The app calls <code>APP.COMMAND</code>, an owner&rsquo;s-rights procedure owned by this role. Access for PUBLIC is revoked. This is the only path from the app to the control tables.</td></tr>
+<tr><td>Confirming you really hold <code>ACCOUNTADMIN</code></td><td><code>ACCT_ADMIN_OWNER</code></td><td>It holds <code>SNOWFLAKE.SECURITY_VIEWER</code> and checks <code>ACCOUNT_USAGE.GRANTS_TO_USERS</code> on every command. If the grant is missing or not yet visible, the app refuses the command.</td></tr>
+<tr><td>Run preflight, Reconcile now, Execute queue now</td><td><code>ACCT_ADMIN_WORKER</code></td><td><code>APP.COMMAND</code> calls <code>WORKER.RUN_ACCOUNT</code>, an owner&rsquo;s-rights procedure owned by the worker role. <code>ACCT_ADMIN_OWNER</code> has <code>USAGE</code> on it.</td></tr>
+<tr><td>Scheduled work</td><td><code>ACCT_ADMIN_WORKER</code></td><td>Owns <code>DISPATCH_TASK</code> (every 5 minutes, runs approved operations), <code>RECONCILE_TASK</code> and <code>PURGE_HANDOFF_TASK</code>, and holds <code>EXECUTE TASK</code>.</td></tr>
+<tr><td>Calling one managed account</td><td><code>ACCT_ADMIN_WORKER</code></td><td>Each account has its own worker procedure <code>WORKER.EXEC_&lt;ACCOUNT_ID&gt;</code>, bound to that account&rsquo;s secret and network rule only. One account&rsquo;s key can never be pointed at another account&rsquo;s host.</td></tr>
+<tr><td>Registering a new account (secrets, network rules, integrations)</td><td><code>ACCT_ADMIN_BOOTSTRAP</code></td><td>Used only during setup of an account (<a href="register_account_guide.html">registration guide</a>). It is not used at runtime.</td></tr>
+</tbody></table></div>
+
+<h3>14.2 In each managed account (the SQL API connection)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Item</th><th>Detail</th></tr></thead>
+<tbody>
+<tr><td>Identity</td><td>The worker signs in as the service user <code>SVC_ACCT_ADMIN</code> with a short-lived key-pair token. The private key is stored only in a Snowflake secret in EIGHTY451 and is never shown or entered in the app.</td></tr>
+<tr><td>Role used</td><td>Set per account in the <a href="#accounts">Account registry</a> as <strong>Execution role</strong>, and sent explicitly on every request (one statement per request).</td></tr>
+<tr><td><code>ACCOUNTADMIN</code> (default)</td><td>Required to grant <code>ACCOUNTADMIN</code> to internal admins and to create roles from a CSV import.</td></tr>
+<tr><td><code>ACCT_USER_ADMIN</code> (least privilege)</td><td>Has <code>CREATE USER</code>, <code>MANAGE GRANTS</code> and <code>APPLY AUTHENTICATION POLICY</code> only. Privileged operations are blocked for accounts set to this role.</td></tr>
+<tr><td>Safeguards on the service user</td><td>Key-pair only (policy <code>SQLAPI_SERVICE_V1</code>, no password or MFA path) and restricted to EIGHTY451&rsquo;s egress addresses (<code>SQLAPI_SERVICE_NP</code>). Both roles are granted to <code>SVC_ACCT_ADMIN</code>.</td></tr>
+</tbody></table></div>
+
+<h3>14.3 End to end</h3>
+<ol>
+  <li>You open the app as <strong>ACCOUNTADMIN</strong> in EIGHTY451.</li>
+  <li>The app sends your request through <code>APP.COMMAND</code>, which runs as <strong><code>ACCT_ADMIN_OWNER</code></strong>, re-checks your <code>ACCOUNTADMIN</code> grant and your duties, and records the request.</li>
+  <li>Once approved, <code>DISPATCH_TASK</code> or <strong>Execute queue now</strong> runs it as <strong><code>ACCT_ADMIN_WORKER</code></strong>.</li>
+  <li>The worker calls the managed account&rsquo;s SQL API as <strong><code>SVC_ACCT_ADMIN</code></strong>, using that account&rsquo;s <strong>Execution role</strong> (<code>ACCOUNTADMIN</code> or <code>ACCT_USER_ADMIN</code>).</li>
+</ol>
+<div class="info">Because of this separation, the app itself never holds a managed-account credential, and a request can only reach a managed account after it has been approved.</div>
 
 <footer>Prepared by Snowflake for 84.51&deg;. For installation and administration see <a href="deployment_guide.html">deployment_guide.html</a>. Screenshots use fictitious sample data.</footer>
 </body>

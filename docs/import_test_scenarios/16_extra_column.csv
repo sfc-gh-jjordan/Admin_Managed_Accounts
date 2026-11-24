@@ -1,0 +1,2 @@
+username,email,first_name,last_name,role_name,default_role,action
+TEST_EXTRA_COL,extra.col@acmefoods.example,Test,Extra,CPG_ANALYST,CPG_ANALYST,ONBOARD,unexpected

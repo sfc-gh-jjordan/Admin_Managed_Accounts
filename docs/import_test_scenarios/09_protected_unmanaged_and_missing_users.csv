@@ -1,0 +1,5 @@
+username,email,first_name,last_name,role_name,default_role,action
+ACME_BREAKGLASS,it@acmefoods.example,Acme,Breakglass,CPG_ANALYST,CPG_ANALYST,ONBOARD
+LEGACY_ETL,,,,CPG_ANALYST,,ADD_ROLES
+J_ORTIZ_8451,j.ortiz@acmefoods.example,J,Ortiz,CPG_ANALYST,,ADD_ROLES
+TEST_NOT_PROVISIONED,,,,,,DISABLE

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="snowflake-source" content="cortex-agent-authored" />
+  <title>Managed Accounts: CSV Import Testing Guide</title>
+  <script type="application/json" id="snowflake-report-metadata">
+  {
+    "generated": "2026-11-23",
+    "intent": "Customer-facing guide for testing CSV user imports in a managed account, with 17 test scenarios",
+    "dataSources": [
+      { "type": "file", "path": "docs/import_test_scenarios/" }
+    ],
+    "sections": [
+      { "id": "overview", "title": "Overview", "dataSources": [] },
+      { "id": "before-you-start", "title": "Before you start", "dataSources": [] },
+      { "id": "how-the-import-works", "title": "How an import works", "dataSources": [] },
+      { "id": "csv-format", "title": "CSV format", "dataSources": [] },
+      { "id": "actions", "title": "Actions", "dataSources": [] },
+      { "id": "run-order", "title": "Suggested run order", "dataSources": [] },
+      { "id": "scenarios", "title": "Test scenarios", "dataSources": [{ "type": "file", "path": "docs/import_test_scenarios/" }] },
+      { "id": "recording-results", "title": "Recording results", "dataSources": [] }
+    ]
+  }
+  </script>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
+      max-width: 960px; width: 100%; box-sizing: border-box;
+      margin: 0 auto; padding: clamp(16px, 4vw, 28px);
+      line-height: 1.55;
+      color: light-dark(#1f2937, #e5e7eb);
+      background: light-dark(#ffffff, #111827);
+    }
+    h1 { color: light-dark(#0f172a, #f1f5f9); margin-bottom: 4px; }
+    h2 { color: light-dark(#0f172a, #f1f5f9); margin-top: 36px; border-bottom: 1px solid light-dark(#e5e7eb, #374151); padding-bottom: 6px; }
+    h3 { color: light-dark(#1e293b, #e2e8f0); margin-top: 24px; }
+    .subtitle { color: light-dark(#6b7280, #9ca3af); margin-top: 0; }
+    a { color: light-dark(#2563eb, #60a5fa); }
+    code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; }
+    code { background: light-dark(#f3f4f6, #1f2937); padding: 1px 5px; border-radius: 4px; word-break: break-word; }
+    pre {
+      background: light-dark(#f9fafb, #0b1220); border: 1px solid light-dark(#e5e7eb, #374151);
+      border-radius: 6px; padding: 12px 14px; overflow-x: auto; font-size: 0.85em;
+    }
+    pre code { background: none; padding: 0; }
+    .table-wrap { overflow-x: auto; margin: 12px 0 18px; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.93em; }
+    th, td { border: 1px solid light-dark(#d1d5db, #374151); padding: 7px 10px; text-align: left; vertical-align: top; }
+    th { background: light-dark(#f3f4f6, #1f2937); font-weight: 600; }
+    .callout {
+      border-left: 4px solid #29b5e8; padding: 10px 14px; margin: 16px 0;
+      background: light-dark(#f0f9ff, #0c2a3a); border-radius: 4px;
+    }
+    .warn { border-left-color: #d97706; background: light-dark(#fffbeb, #2a2008); }
+    .pill {
+      display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.8em; font-weight: 600;
+      background: light-dark(#e0f2fe, #0c4a6e); color: light-dark(#075985, #bae6fd);
+    }
+    .pill.reject { background: light-dark(#fee2e2, #450a0a); color: light-dark(#991b1b, #fecaca); }
+    .pill.ok { background: light-dark(#dcfce7, #052e16); color: light-dark(#166534, #bbf7d0); }
+    ol li, ul li { margin-bottom: 6px; }
+    .checklist li { list-style: none; margin-left: -20px; }
+    .checklist li::before { content: "\2610  "; }
+  </style>
+</head>
+<body>
+
+  <h1>CSV Import Testing Guide</h1>
+  <p class="subtitle">Managed Accounts: adding, disabling, and changing users and roles with a CSV file</p>
+
+  <section id="overview">
+    <h2>Overview</h2>
+    <p>This guide explains how to test the CSV import process before you rely on it for real changes. The import lets an approved operator submit a file of user changes for one managed account. An approver then reviews and approves the batch before anything changes in the account.</p>
+    <p>The test files in <code>docs/import_test_scenarios/</code> cover the main actions (add users, disable and re-enable users, add and replace roles, create new roles) and the checks that reject bad input. Each file has one purpose, so a failure points to one rule.</p>
+    <div class="callout">
+      <strong>Run these tests in a sandbox managed account first.</strong> The sample data uses the account <code>CPG_ACME</code> and the approved email domain <code>acmefoods.example</code>. Replace the domain, role names, and existing usernames with the values for your own account before you run the files.
+    </div>
+  </section>
+
+  <section id="before-you-start">
+    <h2>Before you start</h2>
+    <ul class="checklist">
+      <li>You have <strong>operator</strong> permission on the test account in the admin app.</li>
+      <li>A <strong>different</strong> admin is available to approve batches. You cannot approve a batch you submitted.</li>
+      <li>The account's approved email domain list includes the domain used in the test files.</li>
+      <li>The roles used in the files (<code>CPG_ANALYST</code>, <code>CPG_WRITER</code>, <code>ACME_PROMO_ANALYST</code>) exist in the account's role catalog, or you have updated the files to use roles that do.</li>
+      <li>The existing users named in the files (<code>JANE_SMITH</code>, <code>RAVI_PATEL</code>, <code>MAYA_CHEN</code>, <code>PAT_LEE</code>, <code>J_ORTIZ_8451</code>, <code>ACME_BREAKGLASS</code>, <code>LEGACY_ETL</code>) match your account. Change them to your own users where needed.</li>
+      <li>You have a ticket or change reference to enter with each submission.</li>
+    </ul>
+  </section>
+
+  <section id="how-the-import-works">
+    <h2>How an import works</h2>
+    <ol>
+      <li><strong>Upload.</strong> Choose the account in the <em>Import and review</em> page and upload the CSV.</li>
+      <li><strong>Review.</strong> Each row is checked. Valid rows show <span class="pill ok">Valid</span>. Rejected rows show <span class="pill reject">Rejected</span> with the reason in the Findings column.</li>
+      <li><strong>Exclude rejected rows.</strong> You must tick <em>Exclude</em> on every rejected row before the batch can be submitted. Excluded rows are not processed.</li>
+      <li><strong>Confirm new roles.</strong> If the file names a role that is not in the catalog, the page lists it under <em>Roles to be created</em>. Tick the confirmation before submitting.</li>
+      <li><strong>Submit.</strong> Enter a reason and a ticket reference, then select <em>Submit for approval</em>.</li>
+      <li><strong>Approve.</strong> A second admin reviews the batch in the Approval queue and approves it. Nothing changes in the account until approval.</li>
+      <li><strong>Execute.</strong> The changes are applied to the account and read back to confirm. Each operation shows as succeeded, failed, or blocked in the operations list.</li>
+    </ol>
+  </section>
+
+  <section id="csv-format">
+    <h2>CSV format</h2>
+    <p>The header row must match exactly, in this order:</p>
+    <pre><code>username,email,first_name,last_name,role_name,default_role,action</code></pre>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Column</th><th>Rule</th></tr></thead>
+        <tbody>
+          <tr><td><code>username</code></td><td>Letters, digits and underscores, starting with a letter, up to 128 characters. Stored in upper case. The same username in different letter cases in one file is rejected.</td></tr>
+          <tr><td><code>email</code></td><td>Required for ONBOARD, ADD_ROLES and SET_MANAGED_ROLES. Must be a valid address on an approved domain for the account. Not used for DISABLE or REENABLE.</td></tr>
+          <tr><td><code>first_name</code>, <code>last_name</code></td><td>Letters, spaces, apostrophes, periods and hyphens only, up to 64 characters.</td></tr>
+          <tr><td><code>role_name</code></td><td>A role in the account's catalog, or a new role name (see below). Must be empty for DISABLE and REENABLE.</td></tr>
+          <tr><td><code>default_role</code></td><td>Optional. Must be one of the roles requested for that user in the same file, and must be default-eligible. Must be empty for DISABLE and REENABLE.</td></tr>
+          <tr><td><code>action</code></td><td>One of <code>ONBOARD</code>, <code>ADD_ROLES</code>, <code>SET_MANAGED_ROLES</code>, <code>DISABLE</code>, <code>REENABLE</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Limits: 1 MB, 2,000 data rows, and at most 10 new roles in one batch. The file must be UTF-8. Free text must not contain URLs, semicolons, SQL keywords, or the words password, secret, or private key. Rows for the same user must agree on email, first and last name, default role and action.</p>
+    <div class="callout warn">
+      Some words are blocked in name and role fields even when they look harmless. If a valid-looking name is rejected for "forbidden content", check it for those words and for punctuation such as <code>;</code> or <code>--</code>.
+    </div>
+  </section>
+
+  <section id="actions">
+    <h2>Actions</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Action</th><th>What it does</th><th>Typical use</th></tr></thead>
+        <tbody>
+          <tr><td><code>ONBOARD</code></td><td>Creates the user (or updates a managed user) with the listed roles, default role, and enabled status.</td><td>New starter</td></tr>
+          <tr><td><code>ADD_ROLES</code></td><td>Adds the listed roles to an existing managed user. Other roles are kept.</td><td>Extra access for an existing user</td></tr>
+          <tr><td><code>SET_MANAGED_ROLES</code></td><td>Replaces the user's managed roles with exactly the roles listed. Roles not listed are removed.</td><td>Align a user to a defined role set</td></tr>
+          <tr><td><code>DISABLE</code></td><td>Disables the user. The user record and roles are kept.</td><td>Leaver or temporary suspension</td></tr>
+          <tr><td><code>REENABLE</code></td><td>Enables a previously disabled managed user.</td><td>Return from suspension</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Only users the admin app already manages can be changed with ADD_ROLES, SET_MANAGED_ROLES, DISABLE or REENABLE. Existing unmanaged users, protected users, and internal admin identities are never changed by a CSV.</p>
+  </section>
+
+  <section id="run-order">
+    <h2>Suggested run order</h2>
+    <p>Some scenarios depend on the state left by earlier ones. Run them in this order on a sandbox account:</p>
+    <ol>
+      <li>Rejection checks first (files 07 to 17). They change nothing if the batch is not submitted.</li>
+      <li>Valid onboarding (01), then the new-role onboarding (02).</li>
+      <li>Role changes (05, 06), then disable and re-enable (03, 04).</li>
+      <li>Mixed file (13) last, since it needs an exclusion step.</li>
+    </ol>
+    <p>Files 03 and 04 use existing users, so they can run at any time. Do not run 03 for a user you still need to test with.</p>
+  </section>
+
+  <section id="scenarios">
+    <h2>Test scenarios</h2>
+    <p>Each row lists the file, what it tests, and the expected result in the Review step. <span class="pill ok">Pass</span> means the file behaves as shown; <span class="pill reject">Fail</span> means it does not.</p>
+
+    <h3>Valid files: accepted</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>File</th><th>What it tests</th><th>Expected result</th></tr></thead>
+        <tbody>
+          <tr><td>TC-01</td><td><code>01_onboard_new_users_valid.csv</code></td><td>Onboard three new users, one with two roles, using existing roles only.</td><td>All 4 rows valid. Impact preview shows <strong>Onboard: 3</strong>. After approval, three users exist and are enabled with the listed roles.</td></tr>
+          <tr><td>TC-02</td><td><code>02_onboard_with_new_role.csv</code></td><td>Onboard a user whose role is not in the catalog.</td><td>Row is valid. <em>Roles to be created</em> lists <code>ACME_FIELD_SALES</code>, and the submit button stays disabled until the confirmation is ticked. After approval, the role is created with no privileges, granted to SYSADMIN, and added to the catalog.</td></tr>
+          <tr><td>TC-03</td><td><code>03_disable_user.csv</code></td><td>Disable an existing managed user.</td><td>Row is valid. Impact preview shows <strong>Disable: 1</strong>. After approval, <code>MAYA_CHEN</code> is disabled and the roles are kept.</td></tr>
+          <tr><td>TC-04</td><td><code>04_reenable_user.csv</code></td><td>Re-enable a disabled managed user.</td><td>Row is valid. Impact preview shows <strong>Re-enable: 1</strong>. After approval, <code>PAT_LEE</code> is enabled.</td></tr>
+          <tr><td>TC-05</td><td><code>05_add_roles_existing_user.csv</code></td><td>Add two roles to an existing user without a default role.</td><td>Both rows valid. Impact preview shows <strong>Role changes: 1</strong>. After approval, <code>JANE_SMITH</code> keeps her existing roles and gains <code>CPG_WRITER</code> and <code>ACME_PROMO_ANALYST</code>.</td></tr>
+          <tr><td>TC-06</td><td><code>06_set_managed_roles.csv</code></td><td>Replace a user's managed roles with a shorter list.</td><td>Row is valid. After approval, <code>RAVI_PATEL</code> has only <code>CPG_ANALYST</code>, and <code>CPG_WRITER</code> is removed from the managed roles.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Rejected rows: caught in review</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>File</th><th>What it tests</th><th>Expected finding in the Findings column</th></tr></thead>
+        <tbody>
+          <tr><td>TC-07</td><td><code>07_invalid_email.csv</code></td><td>Email on an unapproved domain, and an invalid email format.</td><td><code>TEST_BAD_DOMAIN</code>: <em>email: domain not approved for this account</em>. <code>TEST_BAD_FORMAT</code>: <em>email: invalid</em>.</td></tr>
+          <tr><td>TC-08</td><td><code>08_blocked_and_disallowed_roles.csv</code></td><td>Blocked role, system role, a role that is not default-eligible, and a default role that was not requested.</td><td><code>TEST_BLOCKED_ROLE</code>: <em>role_name: disabled or blocked in this account's role catalog</em>. <code>TEST_SYSTEM_ROLE</code>: <em>role_name: ACCOUNTADMIN is blocked</em>. <code>TEST_NOT_ELIGIBLE</code>: <em>default_role: not default-eligible</em>. <code>TEST_DEFAULT_MISMATCH</code>: <em>default_role: must be one of the user's requested roles</em>, and <em>not default-eligible</em>.</td></tr>
+          <tr><td>TC-09</td><td><code>09_protected_unmanaged_and_missing_users.csv</code></td><td>Protected user, unmanaged user, internal admin identity, and a user that does not exist in the app.</td><td><code>ACME_BREAKGLASS</code>: <em>username: protected identity</em>. <code>LEGACY_ETL</code>: <em>existing unmanaged user</em> and <em>email: invalid</em>. <code>J_ORTIZ_8451</code>: <em>internal admin identities cannot be managed by CSV</em>. <code>TEST_NOT_PROVISIONED</code>: <em>not an app-managed user</em>.</td></tr>
+          <tr><td>TC-10</td><td><code>10_conflicting_and_duplicate_rows.csv</code></td><td>Same user with different emails, and the same username in two letter cases.</td><td>Second <code>TEST_CONFLICT_USER</code> row: <em>rows for this username disagree on identity, default role or action</em>. Second <code>TEST_CASE_USER</code> row: <em>username: case collision with another row</em>.</td></tr>
+          <tr><td>TC-11</td><td><code>11_forbidden_content.csv</code></td><td>Punctuation and SQL-like text in name fields.</td><td><code>TEST_INJECT_ONE</code>: <em>forbidden content</em> and <em>first_name: invalid characters</em>. <code>TEST_INJECT_TWO</code>: <em>forbidden content</em>. <code>TEST_INJECT_THREE</code> is valid.</td></tr>
+          <tr><td>TC-12</td><td><code>12_too_many_new_roles.csv</code></td><td>Eleven new roles in one batch (limit is 10).</td><td>Rows 1 to 10 valid and listed under <em>Roles to be created</em>. Row for <code>TEST_NEWROLE_11</code>: <em>role_name: more than 10 new roles in one batch</em>.</td></tr>
+          <tr><td>TC-13</td><td><code>13_mixed_valid_and_rejected.csv</code></td><td>One valid row and one rejected row in the same file.</td><td>Submit stays disabled with the warning <em>1 rejected row(s) are not excluded</em>. After excluding <code>TEST_MIXED_BAD</code>, submit is enabled and the batch has one row.</td></tr>
+          <tr><td>TC-17</td><td><code>17_invalid_action_and_stray_roles.csv</code></td><td>Unknown action, and a role given on a DISABLE row.</td><td><code>TEST_BAD_ACTION</code>: <em>action: must be one of</em> (the list of allowed actions). <code>MAYA_CHEN</code>: <em>role_name/default_role: must be empty for DISABLE/REENABLE</em>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>File-level errors: whole file refused</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>File</th><th>What it tests</th><th>Expected message</th></tr></thead>
+        <tbody>
+          <tr><td>TC-14</td><td><code>14_header_error.csv</code></td><td>Header names do not match.</td><td><em>Headers must be exactly: username,email,first_name,last_name,role_name,default_role,action</em>. No review table is shown.</td></tr>
+          <tr><td>TC-15</td><td><code>15_header_only_no_rows.csv</code></td><td>Correct header, no data rows.</td><td><em>No data rows</em>.</td></tr>
+          <tr><td>TC-16</td><td><code>16_extra_column.csv</code></td><td>A data row with more fields than the header.</td><td><em>Line 2: too many columns</em>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Approval and execution checks</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>Check</th><th>Expected result</th></tr></thead>
+        <tbody>
+          <tr><td>TC-18</td><td>Submit the file from TC-02 and try to approve it with the same admin.</td><td>Self-approval is refused.</td></tr>
+          <tr><td>TC-19</td><td>Reject the <code>CREATE_ROLE</code> operation for <code>ACME_FIELD_SALES</code> in the approval queue.</td><td>The user operation for <code>TEST_PRIYA_SHAH</code> is cancelled and does not run.</td></tr>
+          <tr><td>TC-20</td><td>After a successful submit, upload the same file again.</td><td>The upload form is cleared after submit, so the same batch cannot be submitted twice from the same form. Record whether a second, separate batch can be created from the identical file, since duplicate-file detection is not confirmed in this guide.</td></tr>
+          <tr><td>TC-21</td><td>Resubmit a file after the role catalog changed (for example, after TC-02 added a role).</td><td>The batch is refused at submit and must be re-uploaded.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="recording-results">
+    <h2>Recording results</h2>
+    <p>Record one line per scenario. Keep the batch ID and any operation ID that failed, so the issue can be traced.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Test ID</th><th>Result</th><th>Batch or operation ID</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>TC-01</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-02</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-03</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-04</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-05</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-06</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-07</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-08</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-09</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-10</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-11</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-12</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-13</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-14 to TC-16</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-17</td><td></td><td></td><td></td></tr>
+          <tr><td>TC-18 to TC-21</td><td></td><td></td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <strong>Before production use:</strong> confirm every "Expected" result above in your sandbox, update the sample users, domains and roles to your account, and sign off the results with your admin team.
+    </div>
+  </section>
+
+</body>
+</html>

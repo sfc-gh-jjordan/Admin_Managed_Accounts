@@ -1,0 +1,2 @@
+username,email,first_name,last_name,role_name,default_role,action
+RAVI_PATEL,ravi.patel@acmefoods.example,Ravi,Patel,CPG_ANALYST,CPG_ANALYST,SET_MANAGED_ROLES

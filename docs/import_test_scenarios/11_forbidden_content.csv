@@ -1,0 +1,4 @@
+username,email,first_name,last_name,role_name,default_role,action
+TEST_INJECT_ONE,inject.one@acmefoods.example,Robert; DROP TABLE,Inject,CPG_ANALYST,CPG_ANALYST,ONBOARD
+TEST_INJECT_TWO,inject.two@acmefoods.example,Inject,Two -- comment,CPG_ANALYST,CPG_ANALYST,ONBOARD
+TEST_INJECT_THREE,inject.three@acmefoods.example,Inject,Three,CPG_ANALYST,CPG_ANALYST,ONBOARD
